@@ -1,33 +1,98 @@
+import 'dart:async';
 import 'dart:math';
 
+import 'package:cloud_firestore/cloud_firestore.dart'
+    show
+        DocumentChangeType,
+        DocumentSnapshot,
+        FirebaseFirestore,
+        Query,
+        QuerySnapshot,
+        SetOptions;
+import 'package:firebase_auth/firebase_auth.dart'
+    show EmailAuthProvider, FirebaseAuth, FirebaseAuthException, UserCredential;
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vita_app/data/services/jitsi_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
-import 'package:vita_app/data/services/secret_hasher.dart';
+import 'package:vita_app/domain/legal_versions.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 
+/// Colección sincronizada con Firestore (solicitudes, reportes, alertas, etc.).
+class _Sync<T> {
+  _Sync(this.name, this.list, this.idOf, this.toJson, this.fromJson);
+
+  final String name;
+  final List<T> list;
+  final String Function(T) idOf;
+  final Map<String, dynamic> Function(T) toJson;
+  final T Function(Map<String, dynamic>) fromJson;
+
+  /// Último contenido conocido en el servidor (id -> campos).
+  final Map<String, Map<String, dynamic>> synced = {};
+}
+
+/// Repositorio de VITA conectado a Firebase (Auth + Firestore).
+///
+/// La interfaz hacia las pantallas es la misma de antes; por dentro, los datos
+/// viven en Firestore y se mantienen sincronizados entre celulares.
 class VitaRepository extends ChangeNotifier {
   VitaRepository({
     required LocalStorageService storage,
     required JitsiCallService jitsi,
     DateTime Function()? clock,
-  })  : _storage = storage,
-        _jitsi = jitsi,
-        _now = clock ?? DateTime.now;
+  })  : _jitsi = jitsi,
+        _now = clock ?? DateTime.now {
+    _requestsSync = _Sync<CallRequest>(
+      'requests',
+      _requests,
+      (r) => r.id,
+      (r) => r.toJson(),
+      CallRequest.fromJson,
+    );
+    _reportsSync = _Sync<UserReport>(
+      'reports',
+      _reports,
+      (r) => r.id,
+      (r) => r.toJson(),
+      UserReport.fromJson,
+    );
+    _alertsSync = _Sync<EmergencyAlert>(
+      'alerts',
+      _alerts,
+      (a) => a.id,
+      (a) => a.toJson(),
+      EmergencyAlert.fromJson,
+    );
+    _surveysSync = _Sync<CallSurvey>(
+      'surveys',
+      _surveys,
+      (s) => '${s.callId}_${s.userId}',
+      (s) => s.toJson(),
+      CallSurvey.fromJson,
+    );
+    _slotsSync = _Sync<AvailabilitySlot>(
+      'slots',
+      _slots,
+      (s) => s.id,
+      (s) => s.toJson(),
+      AvailabilitySlot.fromJson,
+    );
+  }
 
-  final LocalStorageService _storage;
   final JitsiCallService _jitsi;
   final DateTime Function() _now;
   final _uuid = const Uuid();
   final _random = Random();
 
+  FirebaseFirestore get _db => FirebaseFirestore.instance;
+  FirebaseAuth get _auth => FirebaseAuth.instance;
+
   static const serviceStartHour = 8;
   static const serviceEndHour = 20;
-  static const maxLoginAttempts = 5;
-  static const lockMinutes = 15;
   static const ringTimeout = Duration(seconds: 30);
   static const maxReassigns = 3;
+  static const _writeTimeout = Duration(seconds: 8);
 
   /// El prototipo permite llamadas fuera de horario para demos académicas.
   static const demoBypassSchedule = true;
@@ -38,24 +103,58 @@ class VitaRepository extends ChangeNotifier {
   final List<EmergencyAlert> _alerts = [];
   final List<CallSurvey> _surveys = [];
   final List<AvailabilitySlot> _slots = [];
+
+  late final _Sync<CallRequest> _requestsSync;
+  late final _Sync<UserReport> _reportsSync;
+  late final _Sync<EmergencyAlert> _alertsSync;
+  late final _Sync<CallSurvey> _surveysSync;
+  late final _Sync<AvailabilitySlot> _slotsSync;
+
+  // Usuarios: parte pública (users/{id}) y parte privada (private/{id}).
+  final Map<String, Map<String, dynamic>> _pubById = {};
+  final Map<String, Map<String, dynamic>> _privById = {};
+  final Map<String, Map<String, dynamic>> _syncedPub = {};
+  final Map<String, Map<String, dynamic>> _syncedPriv = {};
+
+  final List<StreamSubscription<dynamic>> _subs = [];
   String? _sessionUserId;
-  String? _recoveryCode;
-  String? _recoveryUserId;
+
+  /// Último problema de sincronización (útil para depurar).
+  String? lastSyncError;
 
   JitsiCallService get jitsi => _jitsi;
+
   VitaUser? get currentUser =>
       _users.where((u) => u.id == _sessionUserId && u.status != AccountStatus.deleted).firstOrNull;
+
   List<VitaUser> get users => List.unmodifiable(_users);
-  List<CallRequest> get requests => List.unmodifiable(_requests);
+
+  /// Solicitudes; las que quedaron "colgadas" se muestran como vencidas.
+  List<CallRequest> get requests => List.unmodifiable(_requests.map(_normalize));
+
   List<UserReport> get reports => List.unmodifiable(_reports);
   List<EmergencyAlert> get alerts => List.unmodifiable(_alerts);
+
   List<AvailabilitySlot> slotsFor(String volunteerId) =>
       _slots.where((s) => s.volunteerId == volunteerId).toList();
+
+  CallRequest _normalize(CallRequest r) {
+    final now = _now();
+    if ((r.status == CallRequestStatus.searching || r.status == CallRequestStatus.ringing) &&
+        now.difference(r.createdAt) > const Duration(minutes: 10)) {
+      return r.copyWith(status: CallRequestStatus.expired);
+    }
+    if (r.status == CallRequestStatus.connected &&
+        now.difference(r.startedAt ?? r.createdAt) > const Duration(hours: 4)) {
+      return r.copyWith(status: CallRequestStatus.interrupted);
+    }
+    return r;
+  }
 
   CallRequest? get activeRequest {
     final user = currentUser;
     if (user == null) return null;
-    return _requests.cast<CallRequest?>().firstWhere(
+    return requests.cast<CallRequest?>().firstWhere(
           (r) =>
               r != null &&
               (r.elderlyId == user.id || r.volunteerId == user.id) &&
@@ -72,118 +171,86 @@ class VitaRepository extends ChangeNotifier {
     return hour >= serviceStartHour && hour < serviceEndHour;
   }
 
-  String get serviceHoursLabel =>
-      'Horario de atención: $serviceStartHour:00 a $serviceEndHour:00';
+  String get serviceHoursLabel => 'Horario de atención: $serviceStartHour:00 a $serviceEndHour:00';
+
+  // ---------------------------------------------------------------------------
+  // Inicio y sesión
+  // ---------------------------------------------------------------------------
 
   Future<void> bootstrap() async {
-    final data = _storage.load();
-    if (data.isEmpty) {
-      _seedDemo();
-      await _persist();
-      notifyListeners();
-      return;
+    final fbUser = _auth.currentUser;
+    if (fbUser != null) {
+      try {
+        final user = await _fetchUser(fbUser.uid);
+        if (user != null && user.status == AccountStatus.active) {
+          await _openSession(user);
+        } else {
+          await _auth.signOut();
+        }
+      } catch (e) {
+        lastSyncError = e.toString();
+        debugPrint('No se pudo restaurar la sesión: $e');
+      }
     }
-    _users
-      ..clear()
-      ..addAll(((data['users'] as List?) ?? []).map((e) => VitaUser.fromJson(Map<String, dynamic>.from(e as Map))));
-    _requests
-      ..clear()
-      ..addAll(((data['requests'] as List?) ?? []).map((e) => CallRequest.fromJson(Map<String, dynamic>.from(e as Map))));
-    _reports
-      ..clear()
-      ..addAll(((data['reports'] as List?) ?? []).map((e) => UserReport.fromJson(Map<String, dynamic>.from(e as Map))));
-    _alerts
-      ..clear()
-      ..addAll(((data['alerts'] as List?) ?? []).map((e) => EmergencyAlert.fromJson(Map<String, dynamic>.from(e as Map))));
-    _surveys
-      ..clear()
-      ..addAll(((data['surveys'] as List?) ?? []).map((e) => CallSurvey.fromJson(Map<String, dynamic>.from(e as Map))));
-    _slots
-      ..clear()
-      ..addAll(((data['slots'] as List?) ?? []).map((e) => AvailabilitySlot.fromJson(Map<String, dynamic>.from(e as Map))));
-    _sessionUserId = data['sessionUserId'] as String?;
     notifyListeners();
   }
 
-  void _seedDemo() {
-    final now = _now();
-    _users.addAll([
-      VitaUser(
-        id: 'elderly-demo',
-        role: UserRole.elderly,
-        displayName: 'Pedro Gómez',
-        status: AccountStatus.active,
-        phone: '3001112233',
-        secretHash: hashSecret('1234'),
-        birthDate: DateTime(1955, 4, 12),
-        familyName: 'Ana Gómez',
-        familyPhone: '3004445566',
-        alternateName: 'Luis Gómez',
-        alternatePhone: '3007778899',
-        consentAccepted: true,
-        onboardingDone: true,
-        createdAt: now,
-      ),
-      VitaUser(
-        id: 'volunteer-demo',
-        role: UserRole.volunteer,
-        displayName: 'María Volunteer',
-        status: AccountStatus.active,
-        email: 'voluntario@vita.app',
-        documentId: '1234567890',
-        secretHash: hashSecret('Voluntario1'),
-        birthDate: DateTime(1998, 8, 20),
-        consentAccepted: true,
-        conductAccepted: true,
-        inductionDone: true,
-        available: true,
-        onboardingDone: true,
-        createdAt: now,
-      ),
-      VitaUser(
-        id: 'coord-demo',
-        role: UserRole.coordinator,
-        displayName: 'Coordinación VITA',
-        status: AccountStatus.active,
-        email: 'coordinacion@vita.app',
-        secretHash: hashSecret('CoordVita1'),
-        consentAccepted: true,
-        createdAt: now,
-      ),
-    ]);
-    _slots.add(
-      AvailabilitySlot(
-        id: 'slot-demo',
-        volunteerId: 'volunteer-demo',
-        weekday: now.weekday,
-        startHour: 0,
-        endHour: 23,
-      ),
-    );
+  Future<VitaUser?> _fetchUser(String uid) async {
+    final pub = await _db.collection('users').doc(uid).get();
+    if (!pub.exists || pub.data() == null) return null;
+    Map<String, dynamic>? priv;
+    try {
+      final privSnap = await _db.collection('private').doc(uid).get();
+      priv = privSnap.data();
+    } catch (_) {
+      priv = null;
+    }
+    _pubById[uid] = Map<String, dynamic>.from(pub.data()!);
+    if (priv != null) _privById[uid] = Map<String, dynamic>.from(priv);
+    return _compose(uid);
   }
 
-  Future<void> _persist() async {
-    await _storage.save({
-      'users': _users.map((e) => e.toJson()).toList(),
-      'requests': _requests.map((e) => e.toJson()).toList(),
-      'reports': _reports.map((e) => e.toJson()).toList(),
-      'alerts': _alerts.map((e) => e.toJson()).toList(),
-      'surveys': _surveys.map((e) => e.toJson()).toList(),
-      'slots': _slots.map((e) => e.toJson()).toList(),
-      'sessionUserId': _sessionUserId,
-    });
+  VitaUser? _compose(String id) {
+    final pub = _pubById[id];
+    if (pub == null) return null;
+    try {
+      final merged = <String, dynamic>{...pub, ...?_privById[id], 'id': id};
+      return VitaUser.fromJson(merged);
+    } catch (e) {
+      debugPrint('Usuario $id con datos incompletos: $e');
+      return null;
+    }
   }
 
-  Future<void> _commit() async {
-    await _persist();
+  Future<void> _openSession(VitaUser user) async {
+    await _stopSync();
+    final pub = _pubById[user.id];
+    final priv = _privById[user.id];
+    _clearLocal();
+    if (pub != null) _pubById[user.id] = pub;
+    if (priv != null) _privById[user.id] = priv;
+    _users.add(user);
+    _syncedPub[user.id] = _publicJson(user);
+    if (priv != null) _syncedPriv[user.id] = _privateJson(user);
+    _sessionUserId = user.id;
+    await _startSync();
     notifyListeners();
   }
 
-  int _indexOf(String id) => _users.indexWhere((u) => u.id == id);
-
-  void _replaceUser(VitaUser user) {
-    final i = _indexOf(user.id);
-    if (i >= 0) _users[i] = user;
+  void _clearLocal() {
+    _users.clear();
+    _requests.clear();
+    _reports.clear();
+    _alerts.clear();
+    _surveys.clear();
+    _slots.clear();
+    _pubById.clear();
+    _privById.clear();
+    _syncedPub.clear();
+    _syncedPriv.clear();
+    for (final s in [_requestsSync, _reportsSync, _alertsSync, _surveysSync, _slotsSync]) {
+      s.synced.clear();
+    }
   }
 
   AuthResult _finishLogin(VitaUser user) {
@@ -196,70 +263,104 @@ class VitaRepository extends ChangeNotifier {
     if (user.role == UserRole.volunteer && user.status == AccountStatus.pending) {
       return const AuthResult.error('Tu cuenta sigue pendiente de verificación.');
     }
-    final lock = user.lockedUntil;
-    if (lock != null && lock.isAfter(_now())) {
-      return const AuthResult.error('Cuenta bloqueada por 15 minutos. Intenta más tarde o recupera el acceso.');
-    }
     return AuthResult.ok(user);
   }
 
-  AuthResult _registerFailedAttempt(VitaUser user) {
-    var attempts = user.failedAttempts + 1;
-    DateTime? lock;
-    var status = user.status;
-    if (attempts >= maxLoginAttempts) {
-      lock = _now().add(const Duration(minutes: lockMinutes));
-      attempts = 0;
+  String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+
+  /// El adulto mayor ingresa con teléfono + PIN; por dentro se convierten en
+  /// un correo y una clave de Firebase (la clave exige 6 caracteres o más).
+  String _elderlyEmail(String phone) => '${_digits(phone)}@telefono.vita.invalid';
+  String _elderlyPassword(String pin, String phone) => 'vita-$pin-${_digits(phone)}';
+
+  String _authMessage(FirebaseAuthException e, {required String wrong}) {
+    switch (e.code) {
+      case 'invalid-credential':
+      case 'wrong-password':
+      case 'user-not-found':
+      case 'invalid-email':
+        return wrong;
+      case 'too-many-requests':
+        return 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
+      case 'network-request-failed':
+        return 'Sin conexión a internet. Revisa tu red e inténtalo de nuevo.';
+      case 'user-disabled':
+        return 'Esta cuenta está deshabilitada.';
+      case 'weak-password':
+        return 'La contraseña es muy débil (mínimo 6 caracteres).';
+      default:
+        return 'No se pudo completar la acción (${e.code}).';
     }
-    _replaceUser(user.copyWith(failedAttempts: attempts, lockedUntil: lock, status: status));
-    _persist();
-    notifyListeners();
-    if (lock != null) {
-      return const AuthResult.error('Demasiados intentos. Cuenta bloqueada 15 minutos.');
-    }
-    return AuthResult.error('Datos incorrectos. Intento $attempts de $maxLoginAttempts.');
   }
 
-  Future<AuthResult> loginElderly({required String phone, required String pin}) async {
-    final user = _users.cast<VitaUser?>().firstWhere(
-          (u) => u != null && u.role == UserRole.elderly && u.phone == phone && u.status != AccountStatus.deleted,
-          orElse: () => null,
-        );
-    if (user == null) return const AuthResult.error('No encontramos ese teléfono.');
-    final gate = _finishLogin(user);
-    if (!gate.isOk) return gate;
-    if (user.secretHash != hashSecret(pin)) return _registerFailedAttempt(user);
-    _replaceUser(user.copyWith(failedAttempts: 0, clearLock: true));
-    _sessionUserId = user.id;
-    await _commit();
-    return AuthResult.ok(_users[_indexOf(user.id)]);
-  }
-
-  Future<AuthResult> loginVolunteer({required String email, required String password}) async {
-    return _loginByEmail(email: email, password: password, role: UserRole.volunteer);
-  }
-
-  Future<AuthResult> loginCoordinator({required String email, required String password}) async {
-    return _loginByEmail(email: email, password: password, role: UserRole.coordinator);
-  }
-
-  Future<AuthResult> _loginByEmail({
+  Future<AuthResult> _login({
     required String email,
     required String password,
     required UserRole role,
+    required String wrong,
   }) async {
-    final user = _users.cast<VitaUser?>().firstWhere(
-          (u) => u != null && u.role == role && u.email?.toLowerCase() == email.toLowerCase() && u.status != AccountStatus.deleted,
-          orElse: () => null,
-        );
-    if (user == null) return const AuthResult.error('No encontramos ese correo.');
-    final gate = _finishLogin(user);
-    if (!gate.isOk) return gate;
-    if (user.secretHash != hashSecret(password)) return _registerFailedAttempt(user);
-    _replaceUser(user.copyWith(failedAttempts: 0, clearLock: true));
-    _sessionUserId = user.id;
-    await _commit();
-    return AuthResult.ok(_users[_indexOf(user.id)]);
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
+      final uid = cred.user!.uid;
+      final user = await _fetchUser(uid);
+      if (user == null || user.status == AccountStatus.deleted || user.role != role) {
+        await _auth.signOut();
+        return const AuthResult.error('No encontramos esa cuenta para este perfil.');
+      }
+      final gate = _finishLogin(user);
+      if (!gate.isOk) {
+        await _auth.signOut();
+        return gate;
+      }
+      await _openSession(user);
+      return AuthResult.ok(user);
+    } on FirebaseAuthException catch (e) {
+      return AuthResult.error(_authMessage(e, wrong: wrong));
+    } catch (e) {
+      lastSyncError = e.toString();
+      return const AuthResult.error('No se pudo conectar. Revisa tu internet e inténtalo de nuevo.');
+    }
+  }
+
+  Future<AuthResult> loginElderly({required String phone, required String pin}) {
+    return _login(
+      email: _elderlyEmail(phone),
+      password: _elderlyPassword(pin, phone),
+      role: UserRole.elderly,
+      wrong: 'Teléfono o PIN incorrectos.',
+    );
+  }
+
+  Future<AuthResult> loginVolunteer({required String email, required String password}) {
+    return _login(
+      email: email.trim(),
+      password: password,
+      role: UserRole.volunteer,
+      wrong: 'Correo o contraseña incorrectos.',
+    );
+  }
+
+  Future<AuthResult> loginCoordinator({required String email, required String password}) {
+    return _login(
+      email: email.trim(),
+      password: password,
+      role: UserRole.coordinator,
+      wrong: 'Correo o contraseña incorrectos.',
+    );
+  }
+
+  Future<void> _writeNewUser(VitaUser user) async {
+    await _db.collection('users').doc(user.id).set(_publicJson(user)).timeout(const Duration(seconds: 15));
+    await _db.collection('private').doc(user.id).set(_privateJson(user)).timeout(const Duration(seconds: 15));
+    // Evidencia del consentimiento (RF10): qué versión del texto aceptó y cuándo.
+    await _db.collection('consents').doc(user.id).set({
+      'userId': user.id,
+      'role': user.role.name,
+      'consentVersion': kConsentVersion,
+      'acceptedAt': _now().toIso8601String(),
+      'acceptedTerms': true,
+      'acceptedPrivacy': true,
+    }).timeout(const Duration(seconds: 15));
   }
 
   Future<AuthResult> registerElderly({
@@ -279,18 +380,28 @@ class VitaRepository extends ChangeNotifier {
     if (pin.length != 4 || int.tryParse(pin) == null) {
       return const AuthResult.error('El PIN debe tener 4 dígitos.');
     }
-    final age = _ageFrom(birthDate);
-    if (age < 60) return const AuthResult.error('El servicio es para personas de 60 años o más.');
-    if (_users.any((u) => u.phone == phone && u.status != AccountStatus.deleted)) {
-      return const AuthResult.error('Ese teléfono ya está registrado.');
+    if (_digits(phone).length < 7) return const AuthResult.error('Revisa el número de teléfono.');
+    if (_ageFrom(birthDate) < 60) return const AuthResult.error('El servicio es para personas de 60 años o más.');
+
+    UserCredential cred;
+    try {
+      cred = await _auth.createUserWithEmailAndPassword(
+        email: _elderlyEmail(phone),
+        password: _elderlyPassword(pin, phone),
+      );
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') return const AuthResult.error('Ese teléfono ya está registrado.');
+      return AuthResult.error(_authMessage(e, wrong: 'Datos incorrectos.'));
+    } catch (_) {
+      return const AuthResult.error('No se pudo conectar. Revisa tu internet e inténtalo de nuevo.');
     }
+
     final user = VitaUser(
-      id: _uuid.v4(),
+      id: cred.user!.uid,
       role: UserRole.elderly,
       displayName: name.trim(),
       status: AccountStatus.active,
       phone: phone.trim(),
-      secretHash: hashSecret(pin),
       birthDate: birthDate,
       familyName: familyName.trim(),
       familyPhone: familyPhone.trim(),
@@ -299,9 +410,18 @@ class VitaRepository extends ChangeNotifier {
       consentAccepted: true,
       createdAt: _now(),
     );
-    _users.add(user);
-    _sessionUserId = user.id;
-    await _commit();
+    try {
+      await _writeNewUser(user);
+    } catch (e) {
+      lastSyncError = e.toString();
+      try {
+        await cred.user!.delete();
+      } catch (_) {}
+      return const AuthResult.error('No se pudo guardar tu registro. Revisa tu internet e inténtalo de nuevo.');
+    }
+    _pubById[user.id] = _publicJson(user);
+    _privById[user.id] = _privateJson(user);
+    await _openSession(user);
     return AuthResult.ok(user);
   }
 
@@ -321,29 +441,42 @@ class VitaRepository extends ChangeNotifier {
       return const AuthResult.error('Debes aceptar el código de conducta y completar la inducción.');
     }
     if (_ageFrom(birthDate) < 18) return const AuthResult.error('El voluntario debe ser mayor de 18 años.');
-    if (_users.any((u) => u.email?.toLowerCase() == email.toLowerCase() && u.status != AccountStatus.deleted)) {
-      return const AuthResult.error('Ese correo ya está registrado.');
+
+    UserCredential cred;
+    try {
+      cred = await _auth.createUserWithEmailAndPassword(email: email.trim(), password: password);
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'email-already-in-use') return const AuthResult.error('Ese correo ya está registrado.');
+      return AuthResult.error(_authMessage(e, wrong: 'Datos incorrectos.'));
+    } catch (_) {
+      return const AuthResult.error('No se pudo conectar. Revisa tu internet e inténtalo de nuevo.');
     }
-    if (_users.any((u) => u.documentId == documentId && u.status != AccountStatus.deleted)) {
-      return const AuthResult.error('Ese documento ya está registrado.');
-    }
+
     final user = VitaUser(
-      id: _uuid.v4(),
+      id: cred.user!.uid,
       role: UserRole.volunteer,
       displayName: name.trim(),
       status: AccountStatus.pending,
       phone: phone.trim(),
       email: email.trim(),
       documentId: documentId.trim(),
-      secretHash: hashSecret(password),
       birthDate: birthDate,
       consentAccepted: true,
       conductAccepted: true,
       inductionDone: true,
       createdAt: _now(),
     );
-    _users.add(user);
-    await _commit();
+    try {
+      await _writeNewUser(user);
+    } catch (e) {
+      lastSyncError = e.toString();
+      try {
+        await cred.user!.delete();
+      } catch (_) {}
+      return const AuthResult.error('No se pudo guardar tu registro. Revisa tu internet e inténtalo de nuevo.');
+    }
+    // El voluntario queda pendiente: no inicia sesión hasta que coordinación lo apruebe.
+    await _auth.signOut();
     return AuthResult.ok(user);
   }
 
@@ -363,57 +496,76 @@ class VitaRepository extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    await _push();
+    await _stopSync();
+    _clearLocal();
     _sessionUserId = null;
-    await _commit();
+    try {
+      await _auth.signOut();
+    } catch (_) {}
+    notifyListeners();
   }
 
+  // ---------------------------------------------------------------------------
+  // Recuperación de acceso
+  // ---------------------------------------------------------------------------
+
   Future<String> startPinRecovery(String phone) async {
-    final user = _users.cast<VitaUser?>().firstWhere(
-          (u) => u != null && u.role == UserRole.elderly && u.phone == phone && u.status != AccountStatus.deleted,
-          orElse: () => null,
-        );
-    if (user == null) {
-      throw Exception('No encontramos ese teléfono.');
-    }
-    _recoveryUserId = user.id;
-    _recoveryCode = (_random.nextInt(900000) + 100000).toString();
-    return _recoveryCode!;
+    throw Exception(
+      'La recuperación del PIN con ayuda del familiar se activa en la siguiente etapa. '
+      'Por ahora comunícate con coordinación.',
+    );
   }
 
   Future<void> completePinRecovery({required String code, required String newPin}) async {
-    if (code != _recoveryCode || _recoveryUserId == null) {
-      throw Exception('El código no es válido.');
-    }
-    if (newPin.length != 4 || int.tryParse(newPin) == null) {
-      throw Exception('El PIN debe tener 4 dígitos.');
-    }
-    final user = _users.firstWhere((u) => u.id == _recoveryUserId);
-    _replaceUser(user.copyWith(secretHash: hashSecret(newPin), failedAttempts: 0, clearLock: true));
-    _recoveryCode = null;
-    _recoveryUserId = null;
-    await _commit();
+    throw Exception('La recuperación del PIN aún no está disponible.');
   }
 
+  /// Envía un correo de Firebase para restablecer la contraseña del voluntario.
   Future<String> startPasswordRecovery(String email) async {
-    final user = _users.cast<VitaUser?>().firstWhere(
-          (u) => u != null && u.role == UserRole.volunteer && u.email?.toLowerCase() == email.toLowerCase(),
-          orElse: () => null,
-        );
-    if (user == null) throw Exception('No encontramos ese correo.');
-    _recoveryUserId = user.id;
-    _recoveryCode = (_random.nextInt(900000) + 100000).toString();
-    return _recoveryCode!;
+    try {
+      await _auth.sendPasswordResetEmail(email: email.trim());
+      return '';
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_authMessage(e, wrong: 'Revisa que el correo esté bien escrito.'));
+    }
   }
 
   Future<void> completePasswordRecovery({required String code, required String password}) async {
-    if (code != _recoveryCode || _recoveryUserId == null) {
-      throw Exception('El código no es válido.');
+    throw Exception('Usa el enlace que enviamos a tu correo.');
+  }
+
+  // ---------------------------------------------------------------------------
+  // Perfil y cuenta
+  // ---------------------------------------------------------------------------
+
+  /// Cuántos voluntarios pueden atender en este momento (para el inicio).
+  int get availableVolunteerCount => _availableVolunteers().length;
+
+  /// Cambia el PIN del adulto mayor: confirma el actual y guarda el nuevo.
+  Future<void> changePin({required String currentPin, required String newPin}) async {
+    final user = currentUser;
+    final fbUser = _auth.currentUser;
+    if (user == null || fbUser == null || user.role != UserRole.elderly) {
+      throw Exception('Debes ingresar como adulto mayor.');
     }
-    final user = _users.firstWhere((u) => u.id == _recoveryUserId);
-    _replaceUser(user.copyWith(secretHash: hashSecret(password), failedAttempts: 0, clearLock: true));
-    _recoveryCode = null;
-    _recoveryUserId = null;
-    await _commit();
+    if (newPin.length != 4 || int.tryParse(newPin) == null) {
+      throw Exception('El PIN nuevo debe tener 4 dígitos.');
+    }
+    if (newPin == currentPin) {
+      throw Exception('El PIN nuevo debe ser distinto al actual.');
+    }
+    final phone = user.phone ?? '';
+    try {
+      final credential = EmailAuthProvider.credential(
+        email: _elderlyEmail(phone),
+        password: _elderlyPassword(currentPin, phone),
+      );
+      await fbUser.reauthenticateWithCredential(credential);
+      await fbUser.updatePassword(_elderlyPassword(newPin, phone));
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_authMessage(e, wrong: 'El PIN actual no es correcto.'));
+    }
   }
 
   Future<void> updateProfile({
@@ -425,6 +577,9 @@ class VitaRepository extends ChangeNotifier {
   }) async {
     final user = currentUser;
     if (user == null) return;
+    if (user.role == UserRole.elderly && phone != null && _digits(phone) != _digits(user.phone ?? '')) {
+      throw Exception('Por seguridad, el número de ingreso solo se cambia con ayuda de coordinación.');
+    }
     _replaceUser(
       user.copyWith(
         phone: phone,
@@ -441,8 +596,14 @@ class VitaRepository extends ChangeNotifier {
     final user = currentUser;
     if (user == null) return;
     _replaceUser(user.copyWith(status: AccountStatus.deleted, available: false));
-    _sessionUserId = null;
     await _commit();
+    try {
+      await _db.collection('private').doc(user.id).delete().timeout(_writeTimeout);
+    } catch (_) {}
+    try {
+      await _auth.currentUser?.delete();
+    } catch (_) {}
+    await logout();
   }
 
   Future<void> setAvailability(bool available) async {
@@ -490,6 +651,10 @@ class VitaRepository extends ChangeNotifier {
     await _commit();
   }
 
+  // ---------------------------------------------------------------------------
+  // Llamadas
+  // ---------------------------------------------------------------------------
+
   Future<CallRequest> startCallRequest() async {
     final user = currentUser;
     if (user == null || user.role != UserRole.elderly) {
@@ -498,14 +663,24 @@ class VitaRepository extends ChangeNotifier {
     if (!isWithinServiceHours) {
       throw Exception('Fuera de horario. $serviceHoursLabel');
     }
+    // Si quedó una llamada "conectada" de antes (por ejemplo, se cerró la app a medias),
+    // se cierra: la persona está pidiendo una nueva y el voluntario debe quedar libre.
+    for (final r in List<CallRequest>.from(_requests)) {
+      if (r.elderlyId == user.id && r.status == CallRequestStatus.connected) {
+        await finishCall(r.id, status: CallRequestStatus.interrupted);
+      }
+    }
+
     final existing = activeRequest;
     if (existing != null) return existing;
 
+    // La sala se deriva del código: otro celular puede entrar a la misma sala.
+    final code = (_random.nextInt(900000) + 100000).toString();
     final request = CallRequest(
       id: _uuid.v4(),
       elderlyId: user.id,
-      roomName: 'VITA_${_uuid.v4().replaceAll('-', '').substring(0, 12)}',
-      joinCode: (_random.nextInt(9000) + 1000).toString(),
+      roomName: 'VITA_Acompanamiento_$code',
+      joinCode: code,
       status: CallRequestStatus.searching,
       createdAt: _now(),
     );
@@ -540,7 +715,7 @@ class VitaRepository extends ChangeNotifier {
   Future<CallRequest> assignVolunteer(String requestId) async {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
-    var request = _requests[index];
+    final request = _requests[index];
     final candidates = _availableVolunteers(excludeId: request.volunteerId);
     if (candidates.isEmpty) {
       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
@@ -568,7 +743,7 @@ class VitaRepository extends ChangeNotifier {
   Future<CallRequest> timeoutRing(String requestId) async {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
-    var request = _requests[index];
+    final request = _requests[index];
     if (request.status != CallRequestStatus.ringing) return request;
     if (request.attempts >= maxReassigns) {
       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
@@ -584,7 +759,7 @@ class VitaRepository extends ChangeNotifier {
     final user = currentUser;
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
-    var request = _requests[index];
+    final request = _requests[index];
     if (user != null && request.volunteerId != user.id) {
       throw Exception('Esta solicitud no te fue asignada.');
     }
@@ -597,36 +772,49 @@ class VitaRepository extends ChangeNotifier {
     await timeoutRing(requestId);
   }
 
+  /// Respaldo manual: el voluntario escribe el código que ve el adulto mayor.
   Future<CallRequest> joinByCode(String code) async {
     final user = currentUser;
     if (user == null || user.role != UserRole.volunteer) {
       throw Exception('Ingresa como voluntario para unirte.');
     }
-    final index = _requests.indexWhere(
-      (r) =>
-          r.joinCode == code.trim() &&
-          (r.status == CallRequestStatus.searching || r.status == CallRequestStatus.ringing),
-    );
-    if (index < 0) throw Exception('No hay una solicitud con ese código.');
-    _requests[index] = _requests[index].copyWith(
+    final clean = code.trim();
+    if (!RegExp(r'^\d{6}$').hasMatch(clean)) {
+      throw Exception('El código debe tener 6 dígitos.');
+    }
+
+    final snap = await _db
+        .collection('requests')
+        .where('joinCode', isEqualTo: clean)
+        .where('status', whereIn: ['searching', 'ringing'])
+        .limit(1)
+        .get();
+    if (snap.docs.isEmpty) throw Exception('No hay una solicitud con ese código.');
+
+    final found = CallRequest.fromJson(Map<String, dynamic>.from(snap.docs.first.data()));
+    final i = _requests.indexWhere((r) => r.id == found.id);
+    if (i >= 0) {
+      _requests[i] = found;
+    } else {
+      _requests.add(found);
+    }
+    _requestsSync.synced[found.id] = found.toJson();
+
+    final updated = found.copyWith(
       volunteerId: user.id,
       status: CallRequestStatus.connected,
       startedAt: _now(),
     );
+    _requests[_requests.indexWhere((r) => r.id == found.id)] = updated;
     _replaceUser(user.copyWith(available: false));
     await _commit();
-    return _requests[index];
+    return updated;
   }
 
-  /// En un solo dispositivo, el voluntario demo acepta para poder entrar a Jitsi.
+  /// Ya no hay voluntario "demo" local: se mantiene solo por compatibilidad.
   Future<CallRequest> autoAcceptDemo(String requestId) async {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
-    final request = _requests[index];
-    if (request.volunteerId == 'volunteer-demo' && request.status == CallRequestStatus.ringing) {
-      _requests[index] = request.copyWith(status: CallRequestStatus.connected, startedAt: _now());
-      await _commit();
-    }
     return _requests[index];
   }
 
@@ -634,7 +822,14 @@ class VitaRepository extends ChangeNotifier {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) return;
     final request = _requests[index];
-    _requests[index] = request.copyWith(status: status, endedAt: _now());
+    // Una "llamada" de menos de 15 segundos casi seguro falló: no cuenta como completada.
+    var finalStatus = status;
+    if (status == CallRequestStatus.completed &&
+        request.startedAt != null &&
+        _now().difference(request.startedAt!) < const Duration(seconds: 15)) {
+      finalStatus = CallRequestStatus.interrupted;
+    }
+    _requests[index] = request.copyWith(status: finalStatus, endedAt: _now());
     if (request.volunteerId != null) {
       final volunteer = _users.cast<VitaUser?>().firstWhere(
             (u) => u != null && u.id == request.volunteerId,
@@ -656,11 +851,16 @@ class VitaRepository extends ChangeNotifier {
     await _jitsi.join(
       roomName: request.roomName,
       displayName: user.displayName,
+      userId: user.id,
       onTerminated: () {
         finishCall(request.id);
       },
     );
   }
+
+  // ---------------------------------------------------------------------------
+  // Reportes, alertas, encuestas y administración
+  // ---------------------------------------------------------------------------
 
   Future<void> addReport({
     required String callId,
@@ -699,7 +899,9 @@ class VitaRepository extends ChangeNotifier {
       };
       _users[reportedIndex] = _users[reportedIndex].copyWith(
         status: next,
-        available: decision == ReportStatus.suspended || decision == ReportStatus.blocked ? false : _users[reportedIndex].available,
+        available: decision == ReportStatus.suspended || decision == ReportStatus.blocked
+            ? false
+            : _users[reportedIndex].available,
       );
     }
     await _commit();
@@ -737,7 +939,10 @@ class VitaRepository extends ChangeNotifier {
   Future<void> setAccountStatus(String userId, AccountStatus status) async {
     final i = _indexOf(userId);
     if (i < 0) return;
-    _users[i] = _users[i].copyWith(status: status, available: status == AccountStatus.active ? _users[i].available : false);
+    _users[i] = _users[i].copyWith(
+      status: status,
+      available: status == AccountStatus.active ? _users[i].available : false,
+    );
     await _commit();
   }
 
@@ -760,5 +965,256 @@ class VitaRepository extends ChangeNotifier {
     if (done.isEmpty) return Duration.zero;
     final ms = done.fold<int>(0, (p, r) => p + r.duration.inMilliseconds) ~/ done.length;
     return Duration(milliseconds: ms);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sincronización con Firestore
+  // ---------------------------------------------------------------------------
+
+  int _indexOf(String id) => _users.indexWhere((u) => u.id == id);
+
+  void _replaceUser(VitaUser user) {
+    final i = _indexOf(user.id);
+    if (i >= 0) _users[i] = user;
+  }
+
+  Map<String, dynamic> _publicJson(VitaUser u) => {
+        'id': u.id,
+        'role': u.role.name,
+        'displayName': u.displayName,
+        'status': u.status.name,
+        'consentAccepted': u.consentAccepted,
+        'conductAccepted': u.conductAccepted,
+        'inductionDone': u.inductionDone,
+        'available': u.available,
+        'onboardingDone': u.onboardingDone,
+        'lastCallAt': u.lastCallAt?.toIso8601String(),
+        'createdAt': u.createdAt?.toIso8601String(),
+      };
+
+  Map<String, dynamic> _privateJson(VitaUser u) => {
+        'phone': u.phone,
+        'email': u.email,
+        'documentId': u.documentId,
+        'birthDate': u.birthDate?.toIso8601String(),
+        'familyName': u.familyName,
+        'familyPhone': u.familyPhone,
+        'alternateName': u.alternateName,
+        'alternatePhone': u.alternatePhone,
+      };
+
+  Future<void> _commit() async {
+    notifyListeners();
+    await _push();
+  }
+
+  /// Solo los campos que cambiaron respecto a lo último conocido del servidor.
+  Map<String, dynamic> _changed(Map<String, dynamic>? old, Map<String, dynamic> now) {
+    if (old == null) return Map<String, dynamic>.from(now);
+    final out = <String, dynamic>{};
+    for (final e in now.entries) {
+      if (!old.containsKey(e.key) || old[e.key] != e.value) out[e.key] = e.value;
+    }
+    return out;
+  }
+
+  Future<void> _set(String collection, String id, Map<String, dynamic> data, void Function() onOk) async {
+    try {
+      await _db.collection(collection).doc(id).set(data, SetOptions(merge: true)).timeout(_writeTimeout);
+      onOk();
+    } on TimeoutException {
+      // Sin conexión: Firestore guarda la escritura y la envía al reconectar.
+      onOk();
+      lastSyncError = 'Sin confirmación del servidor; se enviará al reconectar.';
+    } catch (e) {
+      lastSyncError = 'No se pudo guardar $collection/$id: $e';
+      debugPrint(lastSyncError);
+    }
+  }
+
+  Future<void> _delete(String collection, String id, void Function() onOk) async {
+    try {
+      await _db.collection(collection).doc(id).delete().timeout(_writeTimeout);
+      onOk();
+    } on TimeoutException {
+      onOk();
+    } catch (e) {
+      lastSyncError = 'No se pudo borrar $collection/$id: $e';
+      debugPrint(lastSyncError);
+    }
+  }
+
+  Future<void> _push() async {
+    if (_auth.currentUser == null) return;
+    final writes = <Future<void>>[];
+
+    for (final u in List<VitaUser>.from(_users)) {
+      final pub = _publicJson(u);
+      final oldPub = _syncedPub[u.id];
+      final chPub = _changed(oldPub, pub);
+      if (oldPub == null || chPub.isNotEmpty) {
+        writes.add(_set('users', u.id, chPub, () => _syncedPub[u.id] = pub));
+      }
+      if (u.id == _sessionUserId) {
+        final priv = _privateJson(u);
+        final oldPriv = _syncedPriv[u.id];
+        final chPriv = _changed(oldPriv, priv);
+        if (oldPriv == null || chPriv.isNotEmpty) {
+          writes.add(_set('private', u.id, chPriv, () => _syncedPriv[u.id] = priv));
+        }
+      }
+    }
+
+    void collect<T>(_Sync<T> s, {bool deleteMissing = false}) {
+      final ids = <String>{};
+      for (final item in List<T>.from(s.list)) {
+        final id = s.idOf(item);
+        ids.add(id);
+        final json = s.toJson(item);
+        final old = s.synced[id];
+        final ch = _changed(old, json);
+        if (old != null && ch.isEmpty) continue;
+        writes.add(_set(s.name, id, ch, () => s.synced[id] = json));
+      }
+      if (deleteMissing) {
+        for (final id in s.synced.keys.toList()) {
+          if (!ids.contains(id)) writes.add(_delete(s.name, id, () => s.synced.remove(id)));
+        }
+      }
+    }
+
+    collect(_requestsSync);
+    collect(_reportsSync);
+    collect(_alertsSync);
+    collect(_surveysSync);
+    collect(_slotsSync, deleteMissing: true);
+
+    if (writes.isNotEmpty) await Future.wait(writes);
+  }
+
+  void _onSyncError(Object error) {
+    lastSyncError = error.toString();
+    debugPrint('Error de sincronización: $error');
+  }
+
+  Future<void> _stopSync() async {
+    for (final s in _subs) {
+      await s.cancel();
+    }
+    _subs.clear();
+  }
+
+  Future<void> _startSync() async {
+    final me = _sessionUserId;
+    final role = currentUser?.role;
+    if (me == null || role == null) return;
+
+    _subs.add(_db.collection('users').snapshots().listen(_onUsers, onError: _onSyncError));
+    _listen(_db.collection('slots'), (snap) => _applySnapshot(_slotsSync, snap));
+
+    if (role == UserRole.coordinator) {
+      _subs.add(_db.collection('private').snapshots().listen(_onPrivateAll, onError: _onSyncError));
+      _listen(_db.collection('requests'), (snap) => _applySnapshot(_requestsSync, snap));
+      _listen(_db.collection('reports'), (snap) => _applySnapshot(_reportsSync, snap));
+      _listen(_db.collection('alerts'), (snap) => _applySnapshot(_alertsSync, snap));
+      _listen(_db.collection('surveys'), (snap) => _applySnapshot(_surveysSync, snap));
+    } else {
+      _subs.add(_db.collection('private').doc(me).snapshots().listen(_onPrivateOne, onError: _onSyncError));
+      final field = role == UserRole.elderly ? 'elderlyId' : 'volunteerId';
+      _listen(
+        _db.collection('requests').where(field, isEqualTo: me),
+        (snap) => _applySnapshot(_requestsSync, snap),
+      );
+    }
+  }
+
+  void _listen(Query<Map<String, dynamic>> query, void Function(QuerySnapshot<Map<String, dynamic>>) onData) {
+    _subs.add(query.snapshots().listen(onData, onError: _onSyncError));
+  }
+
+  void _upsertUser(String id) {
+    final user = _compose(id);
+    if (user == null) return;
+    final i = _indexOf(id);
+    if (i >= 0) {
+      _users[i] = user;
+    } else {
+      _users.add(user);
+    }
+    _syncedPub[id] = _publicJson(user);
+    if (_privById.containsKey(id)) _syncedPriv[id] = _privateJson(user);
+  }
+
+  void _onUsers(QuerySnapshot<Map<String, dynamic>> snap) {
+    for (final c in snap.docChanges) {
+      final id = c.doc.id;
+      if (c.type == DocumentChangeType.removed) {
+        _pubById.remove(id);
+        _syncedPub.remove(id);
+        _users.removeWhere((u) => u.id == id);
+        continue;
+      }
+      final data = c.doc.data();
+      if (data == null) continue;
+      _pubById[id] = Map<String, dynamic>.from(data);
+      _upsertUser(id);
+    }
+    notifyListeners();
+  }
+
+  void _onPrivateAll(QuerySnapshot<Map<String, dynamic>> snap) {
+    for (final c in snap.docChanges) {
+      final id = c.doc.id;
+      if (c.type == DocumentChangeType.removed) {
+        _privById.remove(id);
+        _syncedPriv.remove(id);
+      } else if (c.doc.data() != null) {
+        _privById[id] = Map<String, dynamic>.from(c.doc.data()!);
+      }
+      _upsertUser(id);
+    }
+    notifyListeners();
+  }
+
+  void _onPrivateOne(DocumentSnapshot<Map<String, dynamic>> doc) {
+    final data = doc.data();
+    if (data == null) return;
+    _privById[doc.id] = Map<String, dynamic>.from(data);
+    _upsertUser(doc.id);
+    notifyListeners();
+  }
+
+  void _applySnapshot<T>(_Sync<T> s, QuerySnapshot<Map<String, dynamic>> snap) {
+    for (final c in snap.docChanges) {
+      final id = c.doc.id;
+      if (c.type == DocumentChangeType.removed) {
+        s.list.removeWhere((e) => s.idOf(e) == id);
+        s.synced.remove(id);
+        continue;
+      }
+      final data = c.doc.data();
+      if (data == null) continue;
+      try {
+        final item = s.fromJson(Map<String, dynamic>.from(data));
+        final i = s.list.indexWhere((e) => s.idOf(e) == id);
+        if (i >= 0) {
+          s.list[i] = item;
+        } else {
+          s.list.add(item);
+        }
+        s.synced[id] = s.toJson(item);
+      } catch (e) {
+        debugPrint('Documento ${s.name}/$id con datos incompletos: $e');
+      }
+    }
+    notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    for (final s in _subs) {
+      s.cancel();
+    }
+    super.dispose();
   }
 }

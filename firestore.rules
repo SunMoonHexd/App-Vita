@@ -1,0 +1,103 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+    function uid() {
+      return request.auth.uid;
+    }
+    function hasProfile() {
+      return exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+    function profile() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+    function isCoordinator() {
+      return signedIn() && hasProfile()
+        && profile().role == 'coordinator' && profile().status == 'active';
+    }
+    function isActiveVolunteer() {
+      return signedIn() && hasProfile()
+        && profile().role == 'volunteer' && profile().status == 'active';
+    }
+    function changedOnly(keys) {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
+    }
+
+    // Perfil público: nombre, rol, estado y disponibilidad (sin teléfonos ni documentos).
+    match /users/{userId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && uid() == userId
+        && request.resource.data.role in ['elderly', 'volunteer']
+        && request.resource.data.status ==
+           (request.resource.data.role == 'volunteer' ? 'pending' : 'active');
+      allow update: if signedIn() && (
+        isCoordinator()
+        || (uid() == userId
+            && request.resource.data.role == resource.data.role
+            && (request.resource.data.status == resource.data.status
+                || request.resource.data.status == 'deleted'))
+        // Al terminar una llamada se actualiza al voluntario (disponibilidad y última llamada).
+        || (resource.data.role == 'volunteer' && changedOnly(['available', 'lastCallAt']))
+      );
+    }
+
+    // Datos personales: solo la propia persona y coordinación.
+    match /private/{userId} {
+      allow read: if signedIn() && (uid() == userId || isCoordinator());
+      allow create, update, delete: if signedIn() && uid() == userId;
+    }
+
+    match /requests/{requestId} {
+      allow read: if signedIn() && (
+        resource.data.elderlyId == uid()
+        || resource.data.volunteerId == uid()
+        || isCoordinator()
+        // Respaldo por código: un voluntario activo puede buscar solicitudes abiertas.
+        || (isActiveVolunteer() && resource.data.status in ['searching', 'ringing'])
+      );
+      allow create: if signedIn() && request.resource.data.elderlyId == uid();
+      allow update: if signedIn() && (
+        resource.data.elderlyId == uid()
+        || resource.data.volunteerId == uid()
+        || isCoordinator()
+        || (isActiveVolunteer()
+            && resource.data.status in ['searching', 'ringing']
+            && request.resource.data.volunteerId == uid())
+      );
+    }
+
+    match /reports/{reportId} {
+      allow create: if signedIn() && request.resource.data.reporterId == uid();
+      allow read: if signedIn() && (resource.data.reporterId == uid() || isCoordinator());
+      allow update: if isCoordinator();
+    }
+
+    match /alerts/{alertId} {
+      allow create: if signedIn() && request.resource.data.triggeredById == uid();
+      allow read: if signedIn() && (resource.data.triggeredById == uid() || isCoordinator());
+    }
+
+    match /surveys/{surveyId} {
+      allow create, update: if signedIn() && request.resource.data.userId == uid();
+      allow read: if signedIn() && (resource.data.userId == uid() || isCoordinator());
+    }
+
+    // Evidencia del consentimiento: se crea una vez y no se modifica ni se borra.
+    match /consents/{userId} {
+      allow create: if signedIn() && uid() == userId;
+      allow read: if signedIn() && (uid() == userId || isCoordinator());
+    }
+
+    match /slots/{slotId} {
+      allow read: if signedIn();
+      allow create: if signedIn() && request.resource.data.volunteerId == uid();
+      allow update: if signedIn()
+        && resource.data.volunteerId == uid() && request.resource.data.volunteerId == uid();
+      allow delete: if signedIn() && resource.data.volunteerId == uid();
+    }
+  }
+}

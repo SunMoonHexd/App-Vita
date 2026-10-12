@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
 class VitaPage extends StatelessWidget {
   const VitaPage({
@@ -44,18 +45,31 @@ class VitaPrimaryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final child = Text(label, textAlign: TextAlign.center);
+    final bg = color ?? Theme.of(context).colorScheme.primary;
     return SizedBox(
       height: height,
       width: double.infinity,
-      child: ElevatedButton.icon(
+      child: ElevatedButton(
         onPressed: onPressed,
         style: ElevatedButton.styleFrom(
-          backgroundColor: color ?? Theme.of(context).colorScheme.primary,
+          backgroundColor: bg,
           foregroundColor: Colors.white,
+          disabledBackgroundColor: Colors.grey.shade300,
+          disabledForegroundColor: Colors.grey.shade600,
+          elevation: 2,
+          shadowColor: bg.withValues(alpha: 0.3),
+          padding: const EdgeInsets.symmetric(horizontal: 20),
         ),
-        icon: icon == null ? const SizedBox.shrink() : Icon(icon, size: 32),
-        label: child,
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: height >= 96 ? 40 : 30),
+              const SizedBox(width: 12),
+            ],
+            Flexible(child: Text(label, textAlign: TextAlign.center)),
+          ],
+        ),
       ),
     );
   }
@@ -69,11 +83,27 @@ class VitaErrorText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message == null || message!.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Text(
-        message!,
-        style: TextStyle(color: Theme.of(context).colorScheme.error, fontSize: 18),
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFFDECEA),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: VitaColors.alert.withValues(alpha: 0.4)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.error_outline, color: VitaColors.alert),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              message!,
+              style: const TextStyle(color: VitaColors.alert, fontSize: 18),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -83,7 +113,9 @@ Future<void> showVitaMessage(BuildContext context, String message) {
   return showDialog<void>(
     context: context,
     builder: (context) => AlertDialog(
-      title: const Text('App VITA'),
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+      title: const Text('App VITA', style: TextStyle(fontWeight: FontWeight.w800)),
       content: Text(message, style: const TextStyle(fontSize: 18)),
       actions: [
         TextButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido')),

@@ -1,7 +1,9 @@
 import 'dart:async';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vita_app/data/repositories/vita_repository.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
@@ -20,6 +22,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
   String? _error;
   Timer? _ringTimer;
   bool _joining = false;
+  VitaRepository? _repo;
 
   @override
   void initState() {
@@ -30,6 +33,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
   @override
   void dispose() {
     _ringTimer?.cancel();
+    _repo?.removeListener(_onRepoChanged);
     super.dispose();
   }
 
@@ -38,10 +42,27 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
       final request = await VitaScope.of(context).startCallRequest();
       if (!mounted) return;
       setState(() => _request = request);
+      _repo = VitaScope.of(context);
+      _repo!.addListener(_onRepoChanged);
       _watch(request);
     } catch (e) {
       setState(() => _error = e.toString().replaceFirst('Exception: ', ''));
     }
+  }
+
+  /// Reacciona cuando el voluntario (en otro celular) acepta o cambia la solicitud.
+  void _onRepoChanged() {
+    final current = _request;
+    final repo = _repo;
+    if (!mounted || current == null || repo == null) return;
+    final latest = repo.requests.cast<CallRequest?>().firstWhere(
+          (r) => r?.id == current.id,
+          orElse: () => null,
+        );
+    if (latest == null) return;
+    if (latest.status == current.status && latest.volunteerId == current.volunteerId) return;
+    setState(() => _request = latest);
+    _watch(latest);
   }
 
   void _watch(CallRequest request) {
@@ -169,9 +190,9 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
             const Spacer(),
             VitaPrimaryButton(label: 'Cancelar búsqueda', color: Colors.grey.shade700, onPressed: _cancel),
             const SizedBox(height: 12),
-            VitaPrimaryButton(label: 'Ayuda', icon: Icons.help, color: Colors.indigo, onPressed: _help),
+            VitaPrimaryButton(label: 'Ayuda', icon: Icons.help, color: VitaColors.secondary, onPressed: _help),
             const SizedBox(height: 12),
-            VitaPrimaryButton(label: 'Emergencia', icon: Icons.emergency, color: Colors.red.shade700, onPressed: _emergency),
+            VitaPrimaryButton(label: 'Emergencia', icon: Icons.emergency, color: VitaColors.alert, onPressed: _emergency),
             if (request?.volunteerId != null)
               TextButton(
                 onPressed: () => Navigator.push(
@@ -190,5 +211,5 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
 }
 
 class VitaRepositoryTimes {
-  static const ring = Duration(seconds: 8);
+  static const ring = Duration(seconds: 30);
 }

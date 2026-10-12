@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
@@ -65,7 +66,7 @@ class _ReportViewState extends State<ReportView> {
             decoration: const InputDecoration(labelText: 'Comentario (opcional)'),
           ),
           const SizedBox(height: 16),
-          VitaPrimaryButton(label: 'Enviar reporte', color: Colors.red.shade700, onPressed: _send),
+          VitaPrimaryButton(label: 'Enviar reporte', color: VitaColors.alert, onPressed: _send),
         ],
       ),
     );

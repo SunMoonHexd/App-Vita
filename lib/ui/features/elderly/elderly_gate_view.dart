@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 import 'package:vita_app/ui/features/elderly/elderly_login_view.dart';
 import 'package:vita_app/ui/features/elderly/elderly_register_view.dart';
@@ -24,7 +25,7 @@ class ElderlyGateView extends StatelessWidget {
           VitaPrimaryButton(
             label: 'Quiero registrarme',
             icon: Icons.person_add,
-            color: Colors.teal.shade700,
+            color: VitaColors.slate,
             height: 88,
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const ElderlyRegisterView())),
           ),

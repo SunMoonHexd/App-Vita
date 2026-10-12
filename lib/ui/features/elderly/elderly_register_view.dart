@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/features/shared/legal_text_view.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
-import 'package:vita_app/ui/features/elderly/elderly_home_view.dart';
 
 class ElderlyRegisterView extends StatefulWidget {
   const ElderlyRegisterView({super.key});
@@ -73,11 +73,7 @@ class _ElderlyRegisterViewState extends State<ElderlyRegisterView> {
       setState(() => _error = result.error);
       return;
     }
-    Navigator.pushAndRemoveUntil(
-      context,
-      MaterialPageRoute(builder: (_) => const ElderlyHomeView()),
-      (route) => route.isFirst,
-    );
+    Navigator.popUntil(context, (route) => route.isFirst);
   }
 
   @override
@@ -118,8 +114,12 @@ class _ElderlyRegisterViewState extends State<ElderlyRegisterView> {
           CheckboxListTile(
             value: _consent,
             onChanged: (v) => setState(() => _consent = v ?? false),
-            title: const Text(consentText),
+            title: const Text(
+              'Acepto los términos de uso y la política de privacidad, y autorizo el tratamiento '
+              'de mis datos personales (Ley 1581 de 2012).',
+            ),
           ),
+          const LegalLinks(),
           VitaErrorText(_error),
           VitaPrimaryButton(label: 'Crear cuenta', onPressed: _submit),
         ],

@@ -1,11 +1,16 @@
 import 'package:flutter/foundation.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vita_app/config/jaas_secrets.dart';
+import 'package:vita_app/data/services/jaas_token.dart';
 
+/// Videollamadas con JaaS (Jitsi gestionado por 8x8).
 class JitsiCallService {
   JitsiCallService({JitsiMeet? client}) : _client = client ?? JitsiMeet();
 
   final JitsiMeet _client;
+
+  static const String _server = 'https://8x8.vc';
 
   bool get isNativeSupported =>
       !kIsWeb &&
@@ -15,34 +20,68 @@ class JitsiCallService {
   Future<void> join({
     required String roomName,
     required String displayName,
+    required String userId,
     required VoidCallback onTerminated,
   }) async {
+    if (!jaasConfigured) {
+      throw Exception(
+        'Falta configurar JaaS: completa lib/config/jaas_secrets.dart con el App ID, el Key ID y la clave privada.',
+      );
+    }
+
+    final token = buildJaasToken(userId: userId, displayName: displayName, roomName: roomName);
+
     if (!isNativeSupported) {
-      final uri = Uri.parse('https://meet.jit.si/$roomName');
+      final uri = Uri.parse('$_server/$kJaasAppId/$roomName?jwt=$token');
       final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
       if (!launched) {
-        throw Exception('No se pudo abrir Jitsi en el navegador.');
+        throw Exception('No se pudo abrir la videollamada en el navegador.');
       }
       onTerminated();
       return;
     }
 
     final options = JitsiMeetConferenceOptions(
-      serverURL: 'https://meet.jit.si',
-      room: roomName,
+      serverURL: _server,
+      room: '$kJaasAppId/$roomName',
+      token: token,
       configOverrides: {
         'startWithAudioMuted': false,
         'startWithVideoMuted': false,
         'subject': 'Acompañamiento VITA',
         'prejoinPageEnabled': false,
+        'prejoinConfig.enabled': false,
+        'requireDisplayName': false,
         'disableProfile': true,
       },
+      // Pantalla de llamada lo más simple posible: micrófono, cámara y colgar.
       featureFlags: {
         'unsaferoomwarning.enabled': false,
         'welcomepage.enabled': false,
         'prejoinpage.enabled': false,
         'recording.enabled': false,
         'live-streaming.enabled': false,
+        'chat.enabled': false,
+        'invite.enabled': false,
+        'add-people.enabled': false,
+        'calendar.enabled': false,
+        'call-integration.enabled': false,
+        'close-captions.enabled': false,
+        'help.enabled': false,
+        'kick-out.enabled': false,
+        'lobby-mode.enabled': false,
+        'meeting-name.enabled': false,
+        'meeting-password.enabled': false,
+        'overflow-menu.enabled': false,
+        'raise-hand.enabled': false,
+        'reactions.enabled': false,
+        'security-options.enabled': false,
+        'speakerstats.enabled': false,
+        'tile-view.enabled': false,
+        'video-share.enabled': false,
+        'android.screensharing.enabled': false,
+        'ios.screensharing.enabled': false,
+        'conference-timer.enabled': true,
         'toolbox.alwaysVisible': true,
       },
       userInfo: JitsiMeetUserInfo(displayName: displayName),

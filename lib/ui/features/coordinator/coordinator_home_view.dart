@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
@@ -36,8 +37,8 @@ class CoordinatorHomeView extends StatelessWidget {
               subtitle: Text('${user.email} · ${user.documentId}'),
               trailing: Wrap(
                 children: [
-                  IconButton(icon: const Icon(Icons.check, color: Colors.green), onPressed: () => repo.approveVolunteer(user.id, approve: true)),
-                  IconButton(icon: const Icon(Icons.close, color: Colors.red), onPressed: () => repo.approveVolunteer(user.id, approve: false)),
+                  IconButton(icon: const Icon(Icons.check, color: VitaColors.secondary), onPressed: () => repo.approveVolunteer(user.id, approve: true)),
+                  IconButton(icon: const Icon(Icons.close, color: VitaColors.alert), onPressed: () => repo.approveVolunteer(user.id, approve: false)),
                 ],
               ),
             ),
@@ -62,7 +63,7 @@ class CoordinatorHomeView extends StatelessWidget {
           const Text('Alertas de emergencia', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           for (final alert in repo.alerts)
             ListTile(
-              leading: const Icon(Icons.emergency, color: Colors.red),
+              leading: const Icon(Icons.emergency, color: VitaColors.alert),
               title: Text(alert.note ?? 'Alerta'),
               subtitle: Text(alert.createdAt.toLocal().toString()),
             ),

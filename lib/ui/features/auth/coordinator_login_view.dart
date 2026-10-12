@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
-import 'package:vita_app/ui/features/coordinator/coordinator_home_view.dart';
 
 class CoordinatorLoginView extends StatefulWidget {
   const CoordinatorLoginView({super.key});
@@ -45,11 +44,7 @@ class _CoordinatorLoginViewState extends State<CoordinatorLoginView> {
                 setState(() => _error = result.error);
                 return;
               }
-              Navigator.pushAndRemoveUntil(
-                context,
-                MaterialPageRoute(builder: (_) => const CoordinatorHomeView()),
-                (route) => route.isFirst,
-              );
+              Navigator.popUntil(context, (route) => route.isFirst);
             },
           ),
         ],

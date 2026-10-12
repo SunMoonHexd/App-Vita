@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "42087731468",
+    "project_id": "app-vita-b55c4",
+    "storage_bucket": "app-vita-b55c4.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:42087731468:android:62ba935922bbf6f4ad3929",
+        "android_client_info": {
+          "package_name": "com.example.vita_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBSIocF3rXnpLsY7lqFNzUisfOdKmoY12c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

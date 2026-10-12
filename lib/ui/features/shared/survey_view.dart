@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
@@ -76,7 +77,7 @@ class _Faces extends StatelessWidget {
             onTap: () => onChanged(face.$1),
             child: Column(
               children: [
-                Icon(face.$2, size: 56, color: value == face.$1 ? Colors.green : Colors.grey),
+                Icon(face.$2, size: 56, color: value == face.$1 ? VitaColors.secondary : Colors.grey),
                 Text(face.$3),
               ],
             ),

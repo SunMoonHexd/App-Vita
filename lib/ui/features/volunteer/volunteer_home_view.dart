@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
@@ -112,7 +113,7 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
           const SizedBox(height: 16),
           if (incoming.isNotEmpty)
             Card(
-              color: Colors.orange.shade100,
+              color: VitaColors.tint,
               child: Padding(
                 padding: const EdgeInsets.all(16),
                 child: Column(
@@ -148,11 +149,11 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
           const SizedBox(height: 8),
           TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Código de 4 dígitos')),
           const SizedBox(height: 8),
-          VitaPrimaryButton(label: 'Unirme a la sala', color: Colors.blue.shade700, onPressed: _joinCode),
+          VitaPrimaryButton(label: 'Unirme a la sala', color: VitaColors.secondary, onPressed: _joinCode),
           const SizedBox(height: 16),
           VitaPrimaryButton(
             label: 'Mis horarios',
-            color: Colors.teal.shade700,
+            color: VitaColors.slate,
             onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VolunteerScheduleView())),
           ),
         ],
