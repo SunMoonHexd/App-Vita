@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -11,6 +13,12 @@ class JitsiCallService {
   final JitsiMeet _client;
 
   static const String _server = 'https://8x8.vc';
+
+  /// Margen antes de colgar sola cuando la otra persona se va (por si se le cae el internet un instante).
+  static const Duration _aloneGrace = Duration(seconds: 5);
+
+  final Set<String> _remote = {};
+  Timer? _aloneTimer;
 
   bool get isNativeSupported =>
       !kIsWeb &&
@@ -28,6 +36,9 @@ class JitsiCallService {
         'Falta configurar JaaS: completa lib/config/jaas_secrets.dart con el App ID, el Key ID y la clave privada.',
       );
     }
+
+    _remote.clear();
+    _aloneTimer?.cancel();
 
     final token = buildJaasToken(userId: userId, displayName: displayName, roomName: roomName);
 
@@ -90,10 +101,26 @@ class JitsiCallService {
     await _client.join(
       options,
       JitsiMeetEventListener(
+        participantJoined: (email, name, role, participantId) {
+          if (participantId != null) _remote.add(participantId);
+          _aloneTimer?.cancel();
+        },
+        // Si la otra persona se va y nadie vuelve en unos segundos, esta llamada también termina.
+        participantLeft: (participantId) {
+          if (participantId != null) _remote.remove(participantId);
+          if (_remote.isEmpty) {
+            _aloneTimer?.cancel();
+            _aloneTimer = Timer(_aloneGrace, () {
+              _client.hangUp();
+            });
+          }
+        },
         conferenceTerminated: (url, error) {
+          _aloneTimer?.cancel();
           onTerminated();
         },
         readyToClose: () {
+          _aloneTimer?.cancel();
           onTerminated();
         },
       ),
