@@ -29,6 +29,7 @@ class VitaUser {
     this.failedAttempts = 0,
     this.lockedUntil,
     this.lastCallAt,
+    this.lastSeenAt,
     this.createdAt,
   });
 
@@ -53,6 +54,8 @@ class VitaUser {
   final int failedAttempts;
   final DateTime? lockedUntil;
   final DateTime? lastCallAt;
+  /// Último "latido" del voluntario: sirve para saber si de verdad tiene la app abierta.
+  final DateTime? lastSeenAt;
   final DateTime? createdAt;
 
   VitaUser copyWith({
@@ -72,6 +75,7 @@ class VitaUser {
     int? failedAttempts,
     DateTime? lockedUntil,
     DateTime? lastCallAt,
+    DateTime? lastSeenAt,
     bool clearLock = false,
   }) {
     return VitaUser(
@@ -96,6 +100,7 @@ class VitaUser {
       failedAttempts: failedAttempts ?? this.failedAttempts,
       lockedUntil: clearLock ? null : (lockedUntil ?? this.lockedUntil),
       lastCallAt: lastCallAt ?? this.lastCallAt,
+      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
       createdAt: createdAt,
     );
   }
@@ -120,9 +125,10 @@ class VitaUser {
         'available': available,
         'onboardingDone': onboardingDone,
         'failedAttempts': failedAttempts,
-        'lockedUntil': lockedUntil?.toIso8601String(),
-        'lastCallAt': lastCallAt?.toIso8601String(),
-        'createdAt': createdAt?.toIso8601String(),
+        'lockedUntil': vitaIsoN(lockedUntil),
+        'lastCallAt': vitaIsoN(lastCallAt),
+        'lastSeenAt': vitaIsoN(lastSeenAt),
+        'createdAt': vitaIsoN(createdAt),
       };
 
   factory VitaUser.fromJson(Map<String, dynamic> json) {
@@ -148,6 +154,7 @@ class VitaUser {
       failedAttempts: json['failedAttempts'] as int? ?? 0,
       lockedUntil: json['lockedUntil'] == null ? null : DateTime.parse(json['lockedUntil'] as String),
       lastCallAt: json['lastCallAt'] == null ? null : DateTime.parse(json['lastCallAt'] as String),
+      lastSeenAt: json['lastSeenAt'] == null ? null : DateTime.parse(json['lastSeenAt'] as String),
       createdAt: json['createdAt'] == null ? null : DateTime.parse(json['createdAt'] as String),
     );
   }
@@ -213,10 +220,10 @@ class CallRequest {
         'roomName': roomName,
         'joinCode': joinCode,
         'status': status.name,
-        'createdAt': createdAt.toIso8601String(),
+        'createdAt': vitaIso(createdAt),
         'attempts': attempts,
-        'startedAt': startedAt?.toIso8601String(),
-        'endedAt': endedAt?.toIso8601String(),
+        'startedAt': vitaIsoN(startedAt),
+        'endedAt': vitaIsoN(endedAt),
       };
 
   factory CallRequest.fromJson(Map<String, dynamic> json) {
@@ -277,7 +284,7 @@ class UserReport {
         'reason': reason,
         'comment': comment,
         'status': status.name,
-        'createdAt': createdAt.toIso8601String(),
+        'createdAt': vitaIso(createdAt),
       };
 
   factory UserReport.fromJson(Map<String, dynamic> json) {
@@ -317,7 +324,7 @@ class EmergencyAlert {
         'triggeredById': triggeredById,
         'elderlyId': elderlyId,
         'note': note,
-        'createdAt': createdAt.toIso8601String(),
+        'createdAt': vitaIso(createdAt),
       };
 
   factory EmergencyAlert.fromJson(Map<String, dynamic> json) {
@@ -405,15 +412,10 @@ class AuthResult {
   bool get isOk => user != null;
 }
 
-/// Código de recuperación de PIN enviado al familiar (RF12).
-class PinRecoveryTicket {
-  const PinRecoveryTicket({
-    required this.code,
-    required this.familyPhone,
-    required this.familyName,
-  });
+/// Fecha en formato ISO-8601 **en UTC** (termina en "Z"). Sin esto, `toIso8601String()` de una
+/// hora local no incluye la zona horaria y otro celular (u otro emulador) con zona distinta la
+/// interpreta corrida varias horas.
+String vitaIso(DateTime d) => d.toUtc().toIso8601String();
 
-  final String code;
-  final String familyPhone;
-  final String familyName;
-}
+/// Igual que [vitaIso], pero acepta fechas nulas.
+String? vitaIsoN(DateTime? d) => d == null ? null : vitaIso(d);

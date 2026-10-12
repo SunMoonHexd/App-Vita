@@ -97,8 +97,9 @@ class VitaRepository extends ChangeNotifier {
   static const maxReassigns = 3;
   static const maxFailedAttempts = 5;
   static const lockDuration = Duration(minutes: 15);
-  static const recoveryCodeTtl = Duration(minutes: 15);
   static const _writeTimeout = Duration(seconds: 8);
+  /// Un voluntario sin "latido" en este tiempo se considera desconectado.
+  static const presenceWindow = Duration(seconds: 90);
 
   /// El prototipo permite llamadas fuera de horario para demos académicas.
   static const demoBypassSchedule = true;
@@ -367,13 +368,19 @@ class VitaRepository extends ChangeNotifier {
     try {
       final ref = _db.collection('locks').doc(key);
       final snap = await ref.get();
-      final prev = (snap.data()?['failedAttempts'] as num?)?.toInt() ?? 0;
+      final data = snap.data();
+      var prev = (data?['failedAttempts'] as num?)?.toInt() ?? 0;
+      // Si el bloqueo anterior ya venció, se empieza un ciclo nuevo (si no, un solo error
+      // más volvería a bloquear 15 minutos).
+      final rawUntil = data?['lockedUntil'] as String?;
+      final prevUntil = rawUntil == null ? null : DateTime.tryParse(rawUntil);
+      if (prevUntil != null && !_now().isBefore(prevUntil)) prev = 0;
       final next = prev + 1;
       if (next >= maxFailedAttempts) {
         final until = _now().add(lockDuration);
         await ref.set({
           'failedAttempts': next,
-          'lockedUntil': until.toIso8601String(),
+          'lockedUntil': vitaIso(until),
         });
         final help = key.startsWith('elderly:')
             ? ' Recupera el PIN con tu familiar o espera 15 minutos.'
@@ -402,7 +409,7 @@ class VitaRepository extends ChangeNotifier {
       lockKey: _elderlyLockKey(phone),
     );
     if (result.isOk && result.user != null) {
-      await _upsertPhoneIndex(result.user!, pin);
+      await _storePinWrap(result.user!, pin);
     }
     return result;
   }
@@ -434,7 +441,7 @@ class VitaRepository extends ChangeNotifier {
       'userId': user.id,
       'role': user.role.name,
       'consentVersion': kConsentVersion,
-      'acceptedAt': _now().toIso8601String(),
+      'acceptedAt': vitaIso(_now()),
       'acceptedTerms': true,
       'acceptedPrivacy': true,
     }).timeout(const Duration(seconds: 15));
@@ -499,7 +506,7 @@ class VitaRepository extends ChangeNotifier {
     _pubById[user.id] = _publicJson(user);
     _privById[user.id] = _privateJson(user);
     await _openSession(user);
-    await _upsertPhoneIndex(user, pin);
+    await _storePinWrap(user, pin);
     return AuthResult.ok(user);
   }
 
@@ -574,6 +581,12 @@ class VitaRepository extends ChangeNotifier {
   }
 
   Future<void> logout() async {
+    // Un voluntario que cierra sesión deja de estar disponible; si no, la app le seguiría
+    // asignando llamadas y el adulto esperaría hasta que venza el tiempo de timbre.
+    final me = currentUser;
+    if (me != null && me.role == UserRole.volunteer && me.available) {
+      _replaceUser(me.copyWith(available: false));
+    }
     await _push();
     await _stopSync();
     _clearLocal();
@@ -588,76 +601,9 @@ class VitaRepository extends ChangeNotifier {
   // Recuperación de acceso
   // ---------------------------------------------------------------------------
 
-  Future<PinRecoveryTicket> startPinRecovery(String phone) async {
-    final digits = _digits(phone);
-    if (digits.length < 7) {
-      throw Exception('Revisa el número de teléfono.');
-    }
-    final index = await _db.collection('phoneIndex').doc(digits).get();
-    final data = index.data();
-    if (!index.exists || data == null) {
-      throw Exception(
-        'No encontramos ese teléfono. Si ya tenías cuenta, entra una vez con tu PIN '
-        'o pide a coordinación que restablezca el acceso.',
-      );
-    }
-    final familyPhone = (data['familyPhone'] as String?)?.trim() ?? '';
-    final familyName = (data['familyName'] as String?)?.trim() ?? 'Familiar';
-    if (familyPhone.isEmpty) {
-      throw Exception('Esta cuenta no tiene un familiar registrado. Pide ayuda a coordinación.');
-    }
-    final code = (_random.nextInt(900000) + 100000).toString();
-    await _db.collection('pinRecoveries').doc(digits).set({
-      'codeHash': hashSecret(code),
-      'expiresAt': _now().add(recoveryCodeTtl).toIso8601String(),
-      'tries': 0,
-      'uid': data['uid'],
-    });
-    return PinRecoveryTicket(code: code, familyPhone: familyPhone, familyName: familyName);
-  }
-
-  Future<void> completePinRecovery({
-    required String phone,
-    required String code,
-    required String newPin,
-  }) async {
-    if (newPin.length != 4 || int.tryParse(newPin) == null) {
-      throw Exception('El PIN nuevo debe tener 4 dígitos.');
-    }
-    final digits = _digits(phone);
-    final rec = await _db.collection('pinRecoveries').doc(digits).get();
-    final recData = rec.data();
-    if (!rec.exists || recData == null) {
-      throw Exception('Pide primero el código para este teléfono.');
-    }
-    final expiresAt = DateTime.tryParse(recData['expiresAt'] as String? ?? '');
-    if (expiresAt == null || _now().isAfter(expiresAt)) {
-      await rec.reference.delete();
-      throw Exception('El código ya venció. Pide uno nuevo.');
-    }
-    final tries = (recData['tries'] as num?)?.toInt() ?? 0;
-    if (tries >= maxFailedAttempts) {
-      await rec.reference.delete();
-      throw Exception('Demasiados intentos con el código. Pide uno nuevo o contacta a coordinación.');
-    }
-    if (recData['codeHash'] != hashSecret(code.trim())) {
-      await rec.reference.update({'tries': tries + 1});
-      throw Exception('El código no es correcto. Te quedan ${maxFailedAttempts - tries - 1} intento(s).');
-    }
-    final index = await _db.collection('phoneIndex').doc(digits).get();
-    final wrapped = index.data()?['pinWrap'] as String?;
-    final oldPin = wrapped == null ? null : unwrapPin(wrapped);
-    if (oldPin == null) {
-      throw Exception(
-        'No se pudo restablecer el PIN desde aquí. Coordinación puede hacerlo tras verificar tu identidad.',
-      );
-    }
-    await _changeElderlyPassword(phone: phone, currentPin: oldPin, newPin: newPin);
-    await rec.reference.delete();
-    await _clearLock(_elderlyLockKey(phone));
-  }
-
-  /// Coordinación restablece el PIN tras verificar la identidad (RF12).
+  /// Coordinación restablece el PIN tras verificar la identidad por fuera de la app (RF12).
+  /// Sin backend (plan Spark) no hay forma segura de validar un código del familiar, por
+  /// eso la recuperación pasa siempre por una persona de coordinación.
   Future<void> coordinatorResetElderlyPin({required String phone, required String newPin}) async {
     final actor = currentUser;
     if (actor == null || actor.role != UserRole.coordinator) {
@@ -667,41 +613,44 @@ class VitaRepository extends ChangeNotifier {
       throw Exception('El PIN nuevo debe tener 4 dígitos.');
     }
     final digits = _digits(phone);
-    final index = await _db.collection('phoneIndex').doc(digits).get();
-    var wrapped = index.data()?['pinWrap'] as String?;
-    if (wrapped == null) {
-      final match = _users.where((u) => u.role == UserRole.elderly && _digits(u.phone ?? '') == digits);
-      if (match.isEmpty) {
-        throw Exception('No hay un adulto mayor con ese teléfono.');
-      }
+    if (digits.length < 7) {
+      throw Exception('Revisa el número de teléfono.');
+    }
+    final matches = _users.where(
+      (u) =>
+          u.role == UserRole.elderly &&
+          u.status != AccountStatus.deleted &&
+          _digits(u.phone ?? '') == digits,
+    );
+    if (matches.isEmpty) {
+      throw Exception('No hay un adulto mayor con ese teléfono.');
+    }
+    final target = matches.first;
+    final wrapped = _privById[target.id]?['pinWrap'] as String?;
+    final oldPin = wrapped == null ? null : unwrapPin(wrapped);
+    if (oldPin == null) {
       throw Exception(
         'Esa cuenta aún no tiene PIN recuperable. El adulto debe entrar una vez con su PIN actual.',
       );
     }
-    final oldPin = unwrapPin(wrapped);
-    if (oldPin == null) {
-      throw Exception('No se pudo leer el PIN anterior. Prueba de nuevo.');
-    }
-    await _changeElderlyPassword(phone: phone, currentPin: oldPin, newPin: newPin);
-    try {
-      await _db.collection('pinRecoveries').doc(digits).delete();
-    } catch (_) {}
+    await _changeElderlyPassword(
+      uid: target.id,
+      phone: target.phone ?? phone,
+      currentPin: oldPin,
+      newPin: newPin,
+    );
     await _clearLock(_elderlyLockKey(phone));
   }
 
-  Future<void> _upsertPhoneIndex(VitaUser user, String pin) async {
-    final digits = _digits(user.phone ?? '');
-    if (digits.isEmpty || user.role != UserRole.elderly) return;
+  /// Guarda el PIN ofuscado en `private/{uid}` (solo lo leen el propio adulto y coordinación).
+  Future<void> _storePinWrap(VitaUser user, String pin) async {
+    if (user.role != UserRole.elderly) return;
+    final wrapped = wrapPin(pin);
+    if (_privById[user.id]?['pinWrap'] == wrapped) return;
     try {
-      await _db.collection('phoneIndex').doc(digits).set({
-        'uid': user.id,
-        'familyName': user.familyName,
-        'familyPhone': user.familyPhone,
-        'pinWrap': wrapPin(pin),
-        'updatedAt': _now().toIso8601String(),
-      }, SetOptions(merge: true));
+      await _db.collection('private').doc(user.id).set({'pinWrap': wrapped}, SetOptions(merge: true));
     } catch (e) {
-      debugPrint('No se pudo guardar el índice de teléfono: $e');
+      debugPrint('No se pudo guardar el PIN recuperable: $e');
     }
   }
 
@@ -718,6 +667,7 @@ class VitaRepository extends ChangeNotifier {
 
   /// Cambia el PIN en Firebase Auth sin tocar la sesión actual (usa una app secundaria).
   Future<void> _changeElderlyPassword({
+    required String uid,
     required String phone,
     required String currentPin,
     required String newPin,
@@ -731,11 +681,7 @@ class VitaRepository extends ChangeNotifier {
         password: _elderlyPassword(currentPin, phone),
       );
       await auth.currentUser!.updatePassword(_elderlyPassword(newPin, phone));
-      await db.collection('phoneIndex').doc(_digits(phone)).set({
-        'uid': auth.currentUser!.uid,
-        'pinWrap': wrapPin(newPin),
-        'updatedAt': _now().toIso8601String(),
-      }, SetOptions(merge: true));
+      await db.collection('private').doc(uid).set({'pinWrap': wrapPin(newPin)}, SetOptions(merge: true));
     } on FirebaseAuthException catch (e) {
       throw Exception(_authMessage(e, wrong: 'No se pudo validar la cuenta para cambiar el PIN.'));
     } finally {
@@ -787,7 +733,7 @@ class VitaRepository extends ChangeNotifier {
       );
       await fbUser.reauthenticateWithCredential(credential);
       await fbUser.updatePassword(_elderlyPassword(newPin, phone));
-      await _upsertPhoneIndex(user, newPin);
+      await _storePinWrap(user, newPin);
     } on FirebaseAuthException catch (e) {
       throw Exception(_authMessage(e, wrong: 'El PIN actual no es correcto.'));
     }
@@ -805,27 +751,16 @@ class VitaRepository extends ChangeNotifier {
     if (user.role == UserRole.elderly && phone != null && _digits(phone) != _digits(user.phone ?? '')) {
       throw Exception('Por seguridad, el número de ingreso solo se cambia con ayuda de coordinación.');
     }
-    final updated = user.copyWith(
-      phone: phone,
-      familyName: familyName,
-      familyPhone: familyPhone,
-      alternateName: alternateName,
-      alternatePhone: alternatePhone,
+    _replaceUser(
+      user.copyWith(
+        phone: phone,
+        familyName: familyName,
+        familyPhone: familyPhone,
+        alternateName: alternateName,
+        alternatePhone: alternatePhone,
+      ),
     );
-    _replaceUser(updated);
     await _commit();
-    if (updated.role == UserRole.elderly) {
-      final digits = _digits(updated.phone ?? '');
-      if (digits.isNotEmpty) {
-        try {
-          await _db.collection('phoneIndex').doc(digits).set({
-            'uid': updated.id,
-            'familyName': updated.familyName,
-            'familyPhone': updated.familyPhone,
-          }, SetOptions(merge: true));
-        } catch (_) {}
-      }
-    }
   }
 
   Future<void> requestAccountDeletion() async {
@@ -851,7 +786,15 @@ class VitaRepository extends ChangeNotifier {
     if (available && !isVolunteerInShift(user.id)) {
       throw Exception('Estás fuera de tu horario programado.');
     }
-    _replaceUser(user.copyWith(available: available));
+    _replaceUser(user.copyWith(available: available, lastSeenAt: available ? _now() : null));
+    await _commit();
+  }
+
+  /// "Latido" del voluntario: mientras la app está abierta y está disponible, avisa que sigue ahí.
+  Future<void> touchPresence() async {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.volunteer || !user.available) return;
+    _replaceUser(user.copyWith(lastSeenAt: _now()));
     await _commit();
   }
 
@@ -907,6 +850,16 @@ class VitaRepository extends ChangeNotifier {
       }
     }
 
+    // Solicitudes que quedaron abiertas (por ejemplo, se salió de la pantalla sin cancelar):
+    // se cierran para que no dejen "ocupado" a un voluntario ni se reutilicen ya vencidas.
+    for (final r in List<CallRequest>.from(_requests)) {
+      final open = r.status == CallRequestStatus.searching || r.status == CallRequestStatus.ringing;
+      if (r.elderlyId == user.id && open && _now().difference(r.createdAt) > const Duration(seconds: 45)) {
+        final i = _requests.indexWhere((x) => x.id == r.id);
+        _requests[i] = r.copyWith(status: CallRequestStatus.cancelled, endedAt: _now());
+      }
+    }
+
     final existing = activeRequest;
     if (existing != null) return existing;
 
@@ -926,15 +879,21 @@ class VitaRepository extends ChangeNotifier {
     return _requests.firstWhere((r) => r.id == request.id);
   }
 
-  List<VitaUser> _availableVolunteers({String? excludeId}) {
+  List<VitaUser> _availableVolunteers({String? excludeId, String? ignoreRequestId}) {
     final list = _users.where((u) {
       if (u.role != UserRole.volunteer) return false;
       if (u.status != AccountStatus.active) return false;
       if (!u.available) return false;
+      // Disponible en el papel no basta: tiene que haber avisado hace poco que sigue conectado.
+      final seen = u.lastSeenAt;
+      if (seen == null || _now().difference(seen) > presenceWindow) return false;
       if (excludeId != null && u.id == excludeId) return false;
       if (!isVolunteerInShift(u.id)) return false;
-      final busy = _requests.any(
+      // Se usan las solicitudes normalizadas: una solicitud vieja que quedó "ringing" o
+      // "connected" no debe dejar al voluntario como ocupado para siempre.
+      final busy = requests.any(
         (r) =>
+            r.id != ignoreRequestId &&
             r.volunteerId == u.id &&
             (r.status == CallRequestStatus.ringing || r.status == CallRequestStatus.connected),
       );
@@ -952,7 +911,10 @@ class VitaRepository extends ChangeNotifier {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
     final request = _requests[index];
-    final candidates = _availableVolunteers(excludeId: request.volunteerId);
+    var candidates = _availableVolunteers(excludeId: request.volunteerId, ignoreRequestId: request.id);
+    // Si el único voluntario disponible es el mismo que ya estaba sonando, se le vuelve a avisar
+    // (en vez de dar la solicitud por vencida mientras sigue disponible).
+    if (candidates.isEmpty) candidates = _availableVolunteers(ignoreRequestId: request.id);
     if (candidates.isEmpty) {
       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
       await _commit();
@@ -1072,7 +1034,11 @@ class VitaRepository extends ChangeNotifier {
             orElse: () => null,
           );
       if (volunteer != null) {
-        _replaceUser(volunteer.copyWith(lastCallAt: _now(), available: true));
+        _replaceUser(volunteer.copyWith(
+          lastCallAt: _now(),
+          available: true,
+          lastSeenAt: volunteer.id == _sessionUserId ? _now() : null,
+        ));
       }
     }
     await _commit();
@@ -1224,8 +1190,9 @@ class VitaRepository extends ChangeNotifier {
         'inductionDone': u.inductionDone,
         'available': u.available,
         'onboardingDone': u.onboardingDone,
-        'lastCallAt': u.lastCallAt?.toIso8601String(),
-        'createdAt': u.createdAt?.toIso8601String(),
+        'lastCallAt': u.lastCallAt == null ? null : vitaIso(u.lastCallAt!),
+        'lastSeenAt': u.lastSeenAt == null ? null : vitaIso(u.lastSeenAt!),
+        'createdAt': u.createdAt == null ? null : vitaIso(u.createdAt!),
       };
 
   Map<String, dynamic> _privateJson(VitaUser u) => {

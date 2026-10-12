@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
@@ -16,9 +18,23 @@ class VolunteerHomeView extends StatefulWidget {
 
 class _VolunteerHomeViewState extends State<VolunteerHomeView> {
   final _code = TextEditingController();
+  Timer? _presence;
+
+  @override
+  void initState() {
+    super.initState();
+    // Latido: cada 20 s avisa que este celular sigue con la app abierta.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) VitaScope.of(context).touchPresence();
+    });
+    _presence = Timer.periodic(const Duration(seconds: 20), (_) {
+      if (mounted) VitaScope.of(context).touchPresence();
+    });
+  }
 
   @override
   void dispose() {
+    _presence?.cancel();
     _code.dispose();
     super.dispose();
   }

@@ -1,0 +1,86 @@
+diff --git a/lib/data/repositories/vita_repository.dart b/lib/data/repositories/vita_repository.dart
+index bb254c0..3ffb451 100644
+--- a/lib/data/repositories/vita_repository.dart
++++ b/lib/data/repositories/vita_repository.dart
+@@ -579,6 +579,12 @@ class VitaRepository extends ChangeNotifier {
+   }
+ 
+   Future<void> logout() async {
++    // Un voluntario que cierra sesión deja de estar disponible; si no, la app le seguiría
++    // asignando llamadas y el adulto esperaría hasta que venza el tiempo de timbre.
++    final me = currentUser;
++    if (me != null && me.role == UserRole.volunteer && me.available) {
++      _replaceUser(me.copyWith(available: false));
++    }
+     await _push();
+     await _stopSync();
+     _clearLocal();
+diff --git a/lib/ui/features/elderly/elderly_searching_view.dart b/lib/ui/features/elderly/elderly_searching_view.dart
+index e0453d5..7dc89e7 100644
+--- a/lib/ui/features/elderly/elderly_searching_view.dart
++++ b/lib/ui/features/elderly/elderly_searching_view.dart
+@@ -22,6 +22,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+   String? _error;
+   Timer? _ringTimer;
+   bool _joining = false;
++  bool _closed = false;
+   VitaRepository? _repo;
+ 
+   @override
+@@ -37,6 +38,15 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+     super.dispose();
+   }
+ 
++  /// Cierra esta pantalla UNA sola vez. Al cancelar se disparan dos caminos (el aviso del
++  /// repositorio y el botón); si los dos hacían pop, el segundo sacaba también la pantalla de
++  /// abajo y la app quedaba en negro.
++  void _close() {
++    if (_closed || !mounted) return;
++    _closed = true;
++    Navigator.pop(context);
++  }
++
+   Future<void> _start() async {
+     try {
+       final request = await VitaScope.of(context).startCallRequest();
+@@ -71,7 +81,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+       case CallRequestStatus.expired:
+         setState(() => _error = 'No hay voluntarios disponibles ahora.');
+       case CallRequestStatus.cancelled:
+-        Navigator.pop(context);
++        _close();
+       case CallRequestStatus.connected:
+         _enterCall();
+       case CallRequestStatus.ringing:
+@@ -121,13 +131,13 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+         ),
+       );
+     }
+-    if (mounted) Navigator.pop(context);
++    _close();
+   }
+ 
+   Future<void> _cancel() async {
+     final id = _request?.id;
+     if (id != null) await VitaScope.of(context).cancelRequest(id);
+-    if (mounted) Navigator.pop(context);
++    _close();
+   }
+ 
+   Future<void> _help() {
+@@ -160,7 +170,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+     if (phone != null) {
+       await launchUrl(Uri.parse('tel:$phone'));
+     }
+-    if (mounted) Navigator.pop(context);
++    _close();
+   }
+ 
+   @override
+@@ -211,5 +221,5 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+ }
+ 
+ class VitaRepositoryTimes {
+-  static const ring = Duration(seconds: 30);
++  static const ring = Duration(seconds: 20);
+ }

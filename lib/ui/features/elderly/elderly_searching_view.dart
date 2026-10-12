@@ -22,6 +22,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
   String? _error;
   Timer? _ringTimer;
   bool _joining = false;
+  bool _closed = false;
   VitaRepository? _repo;
 
   @override
@@ -35,6 +36,15 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     _ringTimer?.cancel();
     _repo?.removeListener(_onRepoChanged);
     super.dispose();
+  }
+
+  /// Cierra esta pantalla UNA sola vez. Al cancelar se disparan dos caminos (el aviso del
+  /// repositorio y el botón); si los dos hacían pop, el segundo sacaba también la pantalla de
+  /// abajo y la app quedaba en negro.
+  void _close() {
+    if (_closed || !mounted) return;
+    _closed = true;
+    Navigator.pop(context);
   }
 
   Future<void> _start() async {
@@ -71,7 +81,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
       case CallRequestStatus.expired:
         setState(() => _error = 'No hay voluntarios disponibles ahora.');
       case CallRequestStatus.cancelled:
-        Navigator.pop(context);
+        _close();
       case CallRequestStatus.connected:
         _enterCall();
       case CallRequestStatus.ringing:
@@ -121,13 +131,13 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
         ),
       );
     }
-    if (mounted) Navigator.pop(context);
+    _close();
   }
 
   Future<void> _cancel() async {
     final id = _request?.id;
     if (id != null) await VitaScope.of(context).cancelRequest(id);
-    if (mounted) Navigator.pop(context);
+    _close();
   }
 
   Future<void> _help() {
@@ -160,7 +170,7 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     if (phone != null) {
       await launchUrl(Uri.parse('tel:$phone'));
     }
-    if (mounted) Navigator.pop(context);
+    _close();
   }
 
   @override
@@ -211,5 +221,5 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
 }
 
 class VitaRepositoryTimes {
-  static const ring = Duration(seconds: 30);
+  static const ring = Duration(seconds: 20);
 }

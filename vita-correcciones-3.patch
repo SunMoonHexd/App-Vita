@@ -1,0 +1,199 @@
+diff --git a/lib/data/repositories/vita_repository.dart b/lib/data/repositories/vita_repository.dart
+index 3ffb451..232bcac 100644
+--- a/lib/data/repositories/vita_repository.dart
++++ b/lib/data/repositories/vita_repository.dart
+@@ -98,6 +98,8 @@ class VitaRepository extends ChangeNotifier {
+   static const maxFailedAttempts = 5;
+   static const lockDuration = Duration(minutes: 15);
+   static const _writeTimeout = Duration(seconds: 8);
++  /// Un voluntario sin "latido" en este tiempo se considera desconectado.
++  static const presenceWindow = Duration(seconds: 90);
+ 
+   /// El prototipo permite llamadas fuera de horario para demos académicas.
+   static const demoBypassSchedule = true;
+@@ -784,7 +786,15 @@ class VitaRepository extends ChangeNotifier {
+     if (available && !isVolunteerInShift(user.id)) {
+       throw Exception('Estás fuera de tu horario programado.');
+     }
+-    _replaceUser(user.copyWith(available: available));
++    _replaceUser(user.copyWith(available: available, lastSeenAt: available ? _now() : null));
++    await _commit();
++  }
++
++  /// "Latido" del voluntario: mientras la app está abierta y está disponible, avisa que sigue ahí.
++  Future<void> touchPresence() async {
++    final user = currentUser;
++    if (user == null || user.role != UserRole.volunteer || !user.available) return;
++    _replaceUser(user.copyWith(lastSeenAt: _now()));
+     await _commit();
+   }
+ 
+@@ -874,6 +884,9 @@ class VitaRepository extends ChangeNotifier {
+       if (u.role != UserRole.volunteer) return false;
+       if (u.status != AccountStatus.active) return false;
+       if (!u.available) return false;
++      // Disponible en el papel no basta: tiene que haber avisado hace poco que sigue conectado.
++      final seen = u.lastSeenAt;
++      if (seen == null || _now().difference(seen) > presenceWindow) return false;
+       if (excludeId != null && u.id == excludeId) return false;
+       if (!isVolunteerInShift(u.id)) return false;
+       // Se usan las solicitudes normalizadas: una solicitud vieja que quedó "ringing" o
+@@ -1021,7 +1034,11 @@ class VitaRepository extends ChangeNotifier {
+             orElse: () => null,
+           );
+       if (volunteer != null) {
+-        _replaceUser(volunteer.copyWith(lastCallAt: _now(), available: true));
++        _replaceUser(volunteer.copyWith(
++          lastCallAt: _now(),
++          available: true,
++          lastSeenAt: volunteer.id == _sessionUserId ? _now() : null,
++        ));
+       }
+     }
+     await _commit();
+@@ -1174,6 +1191,7 @@ class VitaRepository extends ChangeNotifier {
+         'available': u.available,
+         'onboardingDone': u.onboardingDone,
+         'lastCallAt': u.lastCallAt == null ? null : vitaIso(u.lastCallAt!),
++        'lastSeenAt': u.lastSeenAt == null ? null : vitaIso(u.lastSeenAt!),
+         'createdAt': u.createdAt == null ? null : vitaIso(u.createdAt!),
+       };
+ 
+diff --git a/lib/domain/models/vita_models.dart b/lib/domain/models/vita_models.dart
+index 0da061b..b2395a1 100644
+--- a/lib/domain/models/vita_models.dart
++++ b/lib/domain/models/vita_models.dart
+@@ -29,6 +29,7 @@ class VitaUser {
+     this.failedAttempts = 0,
+     this.lockedUntil,
+     this.lastCallAt,
++    this.lastSeenAt,
+     this.createdAt,
+   });
+ 
+@@ -53,6 +54,8 @@ class VitaUser {
+   final int failedAttempts;
+   final DateTime? lockedUntil;
+   final DateTime? lastCallAt;
++  /// Último "latido" del voluntario: sirve para saber si de verdad tiene la app abierta.
++  final DateTime? lastSeenAt;
+   final DateTime? createdAt;
+ 
+   VitaUser copyWith({
+@@ -72,6 +75,7 @@ class VitaUser {
+     int? failedAttempts,
+     DateTime? lockedUntil,
+     DateTime? lastCallAt,
++    DateTime? lastSeenAt,
+     bool clearLock = false,
+   }) {
+     return VitaUser(
+@@ -96,6 +100,7 @@ class VitaUser {
+       failedAttempts: failedAttempts ?? this.failedAttempts,
+       lockedUntil: clearLock ? null : (lockedUntil ?? this.lockedUntil),
+       lastCallAt: lastCallAt ?? this.lastCallAt,
++      lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+       createdAt: createdAt,
+     );
+   }
+@@ -122,6 +127,7 @@ class VitaUser {
+         'failedAttempts': failedAttempts,
+         'lockedUntil': vitaIsoN(lockedUntil),
+         'lastCallAt': vitaIsoN(lastCallAt),
++        'lastSeenAt': vitaIsoN(lastSeenAt),
+         'createdAt': vitaIsoN(createdAt),
+       };
+ 
+@@ -148,6 +154,7 @@ class VitaUser {
+       failedAttempts: json['failedAttempts'] as int? ?? 0,
+       lockedUntil: json['lockedUntil'] == null ? null : DateTime.parse(json['lockedUntil'] as String),
+       lastCallAt: json['lastCallAt'] == null ? null : DateTime.parse(json['lastCallAt'] as String),
++      lastSeenAt: json['lastSeenAt'] == null ? null : DateTime.parse(json['lastSeenAt'] as String),
+       createdAt: json['createdAt'] == null ? null : DateTime.parse(json['createdAt'] as String),
+     );
+   }
+diff --git a/lib/ui/features/volunteer/volunteer_home_view.dart b/lib/ui/features/volunteer/volunteer_home_view.dart
+index aeec48b..e89a9e0 100644
+--- a/lib/ui/features/volunteer/volunteer_home_view.dart
++++ b/lib/ui/features/volunteer/volunteer_home_view.dart
+@@ -1,3 +1,5 @@
++import 'dart:async';
++
+ import 'package:flutter/material.dart';
+ import 'package:vita_app/ui/core/theme/vita_theme.dart';
+ import 'package:vita_app/domain/models/vita_models.dart';
+@@ -16,9 +18,23 @@ class VolunteerHomeView extends StatefulWidget {
+ 
+ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
+   final _code = TextEditingController();
++  Timer? _presence;
++
++  @override
++  void initState() {
++    super.initState();
++    // Latido: cada 20 s avisa que este celular sigue con la app abierta.
++    WidgetsBinding.instance.addPostFrameCallback((_) {
++      if (mounted) VitaScope.of(context).touchPresence();
++    });
++    _presence = Timer.periodic(const Duration(seconds: 20), (_) {
++      if (mounted) VitaScope.of(context).touchPresence();
++    });
++  }
+ 
+   @override
+   void dispose() {
++    _presence?.cancel();
+     _code.dispose();
+     super.dispose();
+   }
+diff --git a/test/vita_user_test.dart b/test/vita_user_test.dart
+new file mode 100644
+index 0000000..1b510ff
+--- /dev/null
++++ b/test/vita_user_test.dart
+@@ -0,0 +1,45 @@
++import 'package:flutter_test/flutter_test.dart';
++import 'package:vita_app/domain/models/vita_models.dart';
++
++void main() {
++  group('Presencia del voluntario (lastSeenAt)', () {
++    test('se guarda en UTC y se lee como el mismo instante', () {
++      final seen = DateTime(2026, 10, 12, 14, 0);
++      final user = VitaUser(
++        id: 'v1',
++        role: UserRole.volunteer,
++        displayName: 'Vol',
++        status: AccountStatus.active,
++        available: true,
++        lastSeenAt: seen,
++      );
++      final json = user.toJson();
++      expect(json['lastSeenAt'] as String, endsWith('Z'));
++      final back = VitaUser.fromJson(json);
++      expect(back.lastSeenAt!.isAtSameMomentAs(seen), isTrue);
++    });
++
++    test('un usuario sin latido tiene lastSeenAt nulo', () {
++      final user = VitaUser(
++        id: 'v1',
++        role: UserRole.volunteer,
++        displayName: 'Vol',
++        status: AccountStatus.active,
++      );
++      expect(user.lastSeenAt, isNull);
++      expect(VitaUser.fromJson(user.toJson()).lastSeenAt, isNull);
++    });
++
++    test('copyWith conserva el latido anterior si no se indica uno nuevo', () {
++      final seen = DateTime(2026, 10, 12, 14, 0);
++      final user = VitaUser(
++        id: 'v1',
++        role: UserRole.volunteer,
++        displayName: 'Vol',
++        status: AccountStatus.active,
++        lastSeenAt: seen,
++      );
++      expect(user.copyWith(available: false).lastSeenAt, seen);
++    });
++  });
++}

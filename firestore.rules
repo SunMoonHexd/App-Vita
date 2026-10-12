@@ -100,20 +100,19 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.volunteerId == uid();
     }
 
-    // Índice teléfono → cuenta (RF12). Se lee sin sesión para pedir el código al familiar.
-    match /phoneIndex/{phone} {
-      allow read: if true;
-      allow create, update: if signedIn() && (
-        isCoordinator() || request.resource.data.uid == uid()
-      );
-    }
-
-    // Código de recuperación de PIN (solo el hash) y bloqueo por intentos (RF12, RF23).
-    match /pinRecoveries/{phone} {
-      allow read, create, update, delete: if true;
-    }
+    // Contador de intentos fallidos (RF23). Solo es un aviso de la app: la protección real
+    // contra fuerza bruta la hace Firebase Auth en el servidor. Se puede leer un documento
+    // concreto antes de iniciar sesión, pero NO listar la colección, y solo se aceptan los
+    // dos campos esperados. Borrarlo exige sesión iniciada.
     match /locks/{id} {
-      allow read, create, update, delete: if true;
+      allow get: if true;
+      allow list: if false;
+      allow create, update: if request.resource.data.keys().hasOnly(['failedAttempts', 'lockedUntil'])
+        && request.resource.data.failedAttempts is int
+        && request.resource.data.failedAttempts >= 0
+        && request.resource.data.failedAttempts <= 10
+        && (request.resource.data.lockedUntil == null || request.resource.data.lockedUntil is string);
+      allow delete: if signedIn();
     }
   }
 }
