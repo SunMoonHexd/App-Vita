@@ -11,12 +11,15 @@ import 'package:cloud_firestore/cloud_firestore.dart'
         SetOptions;
 import 'package:firebase_auth/firebase_auth.dart'
     show EmailAuthProvider, FirebaseAuth, FirebaseAuthException, UserCredential;
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
 import 'package:vita_app/data/services/jitsi_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
+import 'package:vita_app/data/services/secret_hasher.dart';
 import 'package:vita_app/domain/legal_versions.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/firebase_options.dart';
 
 /// Colección sincronizada con Firestore (solicitudes, reportes, alertas, etc.).
 class _Sync<T> {
@@ -92,6 +95,9 @@ class VitaRepository extends ChangeNotifier {
   static const serviceEndHour = 20;
   static const ringTimeout = Duration(seconds: 30);
   static const maxReassigns = 3;
+  static const maxFailedAttempts = 5;
+  static const lockDuration = Duration(minutes: 15);
+  static const recoveryCodeTtl = Duration(minutes: 15);
   static const _writeTimeout = Duration(seconds: 8);
 
   /// El prototipo permite llamadas fuera de horario para demos académicas.
@@ -298,7 +304,12 @@ class VitaRepository extends ChangeNotifier {
     required String password,
     required UserRole role,
     required String wrong,
+    String? lockKey,
   }) async {
+    if (lockKey != null) {
+      final locked = await _lockMessage(lockKey);
+      if (locked != null) return AuthResult.error(locked);
+    }
     try {
       final cred = await _auth.signInWithEmailAndPassword(email: email, password: password);
       final uid = cred.user!.uid;
@@ -312,9 +323,17 @@ class VitaRepository extends ChangeNotifier {
         await _auth.signOut();
         return gate;
       }
+      if (lockKey != null) await _clearLock(lockKey);
       await _openSession(user);
       return AuthResult.ok(user);
     } on FirebaseAuthException catch (e) {
+      final credentialError = e.code == 'invalid-credential' ||
+          e.code == 'wrong-password' ||
+          e.code == 'user-not-found' ||
+          e.code == 'invalid-email';
+      if (lockKey != null && credentialError) {
+        return AuthResult.error(await _registerFailedAttempt(lockKey, wrong: wrong));
+      }
       return AuthResult.error(_authMessage(e, wrong: wrong));
     } catch (e) {
       lastSyncError = e.toString();
@@ -322,13 +341,70 @@ class VitaRepository extends ChangeNotifier {
     }
   }
 
-  Future<AuthResult> loginElderly({required String phone, required String pin}) {
-    return _login(
+  String _elderlyLockKey(String phone) => 'elderly:${_digits(phone)}';
+  String _volunteerLockKey(String email) => 'volunteer:${email.trim().toLowerCase()}';
+
+  Future<String?> _lockMessage(String key) async {
+    try {
+      final snap = await _db.collection('locks').doc(key).get();
+      final data = snap.data();
+      if (data == null) return null;
+      final raw = data['lockedUntil'] as String?;
+      if (raw == null) return null;
+      final until = DateTime.tryParse(raw);
+      if (until == null || !_now().isBefore(until)) return null;
+      final minutes = until.difference(_now()).inMinutes + 1;
+      final help = key.startsWith('elderly:')
+          ? ' También puedes restablecer el PIN con ayuda de tu familiar.'
+          : ' También puedes restablecer tu contraseña desde el correo.';
+      return 'Cuenta bloqueada por intentos fallidos. Espera $minutes minuto(s).$help';
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<String> _registerFailedAttempt(String key, {required String wrong}) async {
+    try {
+      final ref = _db.collection('locks').doc(key);
+      final snap = await ref.get();
+      final prev = (snap.data()?['failedAttempts'] as num?)?.toInt() ?? 0;
+      final next = prev + 1;
+      if (next >= maxFailedAttempts) {
+        final until = _now().add(lockDuration);
+        await ref.set({
+          'failedAttempts': next,
+          'lockedUntil': until.toIso8601String(),
+        });
+        final help = key.startsWith('elderly:')
+            ? ' Recupera el PIN con tu familiar o espera 15 minutos.'
+            : ' Espera 15 minutos o restablece tu contraseña.';
+        return 'Cuenta bloqueada por 15 minutos tras 5 intentos fallidos.$help';
+      }
+      await ref.set({'failedAttempts': next, 'lockedUntil': null});
+      return '$wrong Te quedan ${maxFailedAttempts - next} intento(s).';
+    } catch (_) {
+      return wrong;
+    }
+  }
+
+  Future<void> _clearLock(String key) async {
+    try {
+      await _db.collection('locks').doc(key).delete();
+    } catch (_) {}
+  }
+
+  Future<AuthResult> loginElderly({required String phone, required String pin}) async {
+    final result = await _login(
       email: _elderlyEmail(phone),
       password: _elderlyPassword(pin, phone),
       role: UserRole.elderly,
       wrong: 'Teléfono o PIN incorrectos.',
+      lockKey: _elderlyLockKey(phone),
     );
+    if (result.isOk && result.user != null) {
+      await _upsertPhoneIndex(result.user!, pin);
+    }
+    return result;
   }
 
   Future<AuthResult> loginVolunteer({required String email, required String password}) {
@@ -337,6 +413,7 @@ class VitaRepository extends ChangeNotifier {
       password: password,
       role: UserRole.volunteer,
       wrong: 'Correo o contraseña incorrectos.',
+      lockKey: _volunteerLockKey(email),
     );
   }
 
@@ -422,6 +499,7 @@ class VitaRepository extends ChangeNotifier {
     _pubById[user.id] = _publicJson(user);
     _privById[user.id] = _privateJson(user);
     await _openSession(user);
+    await _upsertPhoneIndex(user, pin);
     return AuthResult.ok(user);
   }
 
@@ -510,15 +588,161 @@ class VitaRepository extends ChangeNotifier {
   // Recuperación de acceso
   // ---------------------------------------------------------------------------
 
-  Future<String> startPinRecovery(String phone) async {
-    throw Exception(
-      'La recuperación del PIN con ayuda del familiar se activa en la siguiente etapa. '
-      'Por ahora comunícate con coordinación.',
-    );
+  Future<PinRecoveryTicket> startPinRecovery(String phone) async {
+    final digits = _digits(phone);
+    if (digits.length < 7) {
+      throw Exception('Revisa el número de teléfono.');
+    }
+    final index = await _db.collection('phoneIndex').doc(digits).get();
+    final data = index.data();
+    if (!index.exists || data == null) {
+      throw Exception(
+        'No encontramos ese teléfono. Si ya tenías cuenta, entra una vez con tu PIN '
+        'o pide a coordinación que restablezca el acceso.',
+      );
+    }
+    final familyPhone = (data['familyPhone'] as String?)?.trim() ?? '';
+    final familyName = (data['familyName'] as String?)?.trim() ?? 'Familiar';
+    if (familyPhone.isEmpty) {
+      throw Exception('Esta cuenta no tiene un familiar registrado. Pide ayuda a coordinación.');
+    }
+    final code = (_random.nextInt(900000) + 100000).toString();
+    await _db.collection('pinRecoveries').doc(digits).set({
+      'codeHash': hashSecret(code),
+      'expiresAt': _now().add(recoveryCodeTtl).toIso8601String(),
+      'tries': 0,
+      'uid': data['uid'],
+    });
+    return PinRecoveryTicket(code: code, familyPhone: familyPhone, familyName: familyName);
   }
 
-  Future<void> completePinRecovery({required String code, required String newPin}) async {
-    throw Exception('La recuperación del PIN aún no está disponible.');
+  Future<void> completePinRecovery({
+    required String phone,
+    required String code,
+    required String newPin,
+  }) async {
+    if (newPin.length != 4 || int.tryParse(newPin) == null) {
+      throw Exception('El PIN nuevo debe tener 4 dígitos.');
+    }
+    final digits = _digits(phone);
+    final rec = await _db.collection('pinRecoveries').doc(digits).get();
+    final recData = rec.data();
+    if (!rec.exists || recData == null) {
+      throw Exception('Pide primero el código para este teléfono.');
+    }
+    final expiresAt = DateTime.tryParse(recData['expiresAt'] as String? ?? '');
+    if (expiresAt == null || _now().isAfter(expiresAt)) {
+      await rec.reference.delete();
+      throw Exception('El código ya venció. Pide uno nuevo.');
+    }
+    final tries = (recData['tries'] as num?)?.toInt() ?? 0;
+    if (tries >= maxFailedAttempts) {
+      await rec.reference.delete();
+      throw Exception('Demasiados intentos con el código. Pide uno nuevo o contacta a coordinación.');
+    }
+    if (recData['codeHash'] != hashSecret(code.trim())) {
+      await rec.reference.update({'tries': tries + 1});
+      throw Exception('El código no es correcto. Te quedan ${maxFailedAttempts - tries - 1} intento(s).');
+    }
+    final index = await _db.collection('phoneIndex').doc(digits).get();
+    final wrapped = index.data()?['pinWrap'] as String?;
+    final oldPin = wrapped == null ? null : unwrapPin(wrapped);
+    if (oldPin == null) {
+      throw Exception(
+        'No se pudo restablecer el PIN desde aquí. Coordinación puede hacerlo tras verificar tu identidad.',
+      );
+    }
+    await _changeElderlyPassword(phone: phone, currentPin: oldPin, newPin: newPin);
+    await rec.reference.delete();
+    await _clearLock(_elderlyLockKey(phone));
+  }
+
+  /// Coordinación restablece el PIN tras verificar la identidad (RF12).
+  Future<void> coordinatorResetElderlyPin({required String phone, required String newPin}) async {
+    final actor = currentUser;
+    if (actor == null || actor.role != UserRole.coordinator) {
+      throw Exception('Solo coordinación puede restablecer el PIN de esta forma.');
+    }
+    if (newPin.length != 4 || int.tryParse(newPin) == null) {
+      throw Exception('El PIN nuevo debe tener 4 dígitos.');
+    }
+    final digits = _digits(phone);
+    final index = await _db.collection('phoneIndex').doc(digits).get();
+    var wrapped = index.data()?['pinWrap'] as String?;
+    if (wrapped == null) {
+      final match = _users.where((u) => u.role == UserRole.elderly && _digits(u.phone ?? '') == digits);
+      if (match.isEmpty) {
+        throw Exception('No hay un adulto mayor con ese teléfono.');
+      }
+      throw Exception(
+        'Esa cuenta aún no tiene PIN recuperable. El adulto debe entrar una vez con su PIN actual.',
+      );
+    }
+    final oldPin = unwrapPin(wrapped);
+    if (oldPin == null) {
+      throw Exception('No se pudo leer el PIN anterior. Prueba de nuevo.');
+    }
+    await _changeElderlyPassword(phone: phone, currentPin: oldPin, newPin: newPin);
+    try {
+      await _db.collection('pinRecoveries').doc(digits).delete();
+    } catch (_) {}
+    await _clearLock(_elderlyLockKey(phone));
+  }
+
+  Future<void> _upsertPhoneIndex(VitaUser user, String pin) async {
+    final digits = _digits(user.phone ?? '');
+    if (digits.isEmpty || user.role != UserRole.elderly) return;
+    try {
+      await _db.collection('phoneIndex').doc(digits).set({
+        'uid': user.id,
+        'familyName': user.familyName,
+        'familyPhone': user.familyPhone,
+        'pinWrap': wrapPin(pin),
+        'updatedAt': _now().toIso8601String(),
+      }, SetOptions(merge: true));
+    } catch (e) {
+      debugPrint('No se pudo guardar el índice de teléfono: $e');
+    }
+  }
+
+  Future<FirebaseApp> _pinResetApp() async {
+    try {
+      return Firebase.app('vita-pin-reset');
+    } catch (_) {
+      return Firebase.initializeApp(
+        name: 'vita-pin-reset',
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    }
+  }
+
+  /// Cambia el PIN en Firebase Auth sin tocar la sesión actual (usa una app secundaria).
+  Future<void> _changeElderlyPassword({
+    required String phone,
+    required String currentPin,
+    required String newPin,
+  }) async {
+    final app = await _pinResetApp();
+    final auth = FirebaseAuth.instanceFor(app: app);
+    final db = FirebaseFirestore.instanceFor(app: app);
+    try {
+      await auth.signInWithEmailAndPassword(
+        email: _elderlyEmail(phone),
+        password: _elderlyPassword(currentPin, phone),
+      );
+      await auth.currentUser!.updatePassword(_elderlyPassword(newPin, phone));
+      await db.collection('phoneIndex').doc(_digits(phone)).set({
+        'uid': auth.currentUser!.uid,
+        'pinWrap': wrapPin(newPin),
+        'updatedAt': _now().toIso8601String(),
+      }, SetOptions(merge: true));
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_authMessage(e, wrong: 'No se pudo validar la cuenta para cambiar el PIN.'));
+    } finally {
+      try {
+        await auth.signOut();
+      } catch (_) {}
+    }
   }
 
   /// Envía un correo de Firebase para restablecer la contraseña del voluntario.
@@ -563,6 +787,7 @@ class VitaRepository extends ChangeNotifier {
       );
       await fbUser.reauthenticateWithCredential(credential);
       await fbUser.updatePassword(_elderlyPassword(newPin, phone));
+      await _upsertPhoneIndex(user, newPin);
     } on FirebaseAuthException catch (e) {
       throw Exception(_authMessage(e, wrong: 'El PIN actual no es correcto.'));
     }
@@ -580,16 +805,27 @@ class VitaRepository extends ChangeNotifier {
     if (user.role == UserRole.elderly && phone != null && _digits(phone) != _digits(user.phone ?? '')) {
       throw Exception('Por seguridad, el número de ingreso solo se cambia con ayuda de coordinación.');
     }
-    _replaceUser(
-      user.copyWith(
-        phone: phone,
-        familyName: familyName,
-        familyPhone: familyPhone,
-        alternateName: alternateName,
-        alternatePhone: alternatePhone,
-      ),
+    final updated = user.copyWith(
+      phone: phone,
+      familyName: familyName,
+      familyPhone: familyPhone,
+      alternateName: alternateName,
+      alternatePhone: alternatePhone,
     );
+    _replaceUser(updated);
     await _commit();
+    if (updated.role == UserRole.elderly) {
+      final digits = _digits(updated.phone ?? '');
+      if (digits.isNotEmpty) {
+        try {
+          await _db.collection('phoneIndex').doc(digits).set({
+            'uid': updated.id,
+            'familyName': updated.familyName,
+            'familyPhone': updated.familyPhone,
+          }, SetOptions(merge: true));
+        } catch (_) {}
+      }
+    }
   }
 
   Future<void> requestAccountDeletion() async {

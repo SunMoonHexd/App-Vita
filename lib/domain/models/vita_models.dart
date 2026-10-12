@@ -404,3 +404,16 @@ class AuthResult {
   final String? error;
   bool get isOk => user != null;
 }
+
+/// Código de recuperación de PIN enviado al familiar (RF12).
+class PinRecoveryTicket {
+  const PinRecoveryTicket({
+    required this.code,
+    required this.familyPhone,
+    required this.familyName,
+  });
+
+  final String code;
+  final String familyPhone;
+  final String familyName;
+}

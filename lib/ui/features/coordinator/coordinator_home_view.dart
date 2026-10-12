@@ -28,6 +28,12 @@ class CoordinatorHomeView extends StatelessWidget {
         children: [
           Text('Llamadas completadas: ${repo.completedCalls}'),
           Text('Duración promedio: ${avg.inMinutes} min'),
+          const SizedBox(height: 12),
+          VitaPrimaryButton(
+            label: 'Restablecer PIN de un adulto',
+            color: VitaColors.secondary,
+            onPressed: () => _resetPin(context),
+          ),
           const Divider(),
           const Text('Voluntarios pendientes', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           if (pending.isEmpty) const Text('No hay solicitudes nuevas.'),
@@ -80,5 +86,40 @@ class CoordinatorHomeView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  Future<void> _resetPin(BuildContext context) async {
+    final phone = TextEditingController();
+    final pin = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Restablecer PIN'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('Verifica la identidad del adulto o del familiar y define un PIN nuevo de 4 dígitos.'),
+            const SizedBox(height: 12),
+            TextField(controller: phone, keyboardType: TextInputType.phone, decoration: const InputDecoration(labelText: 'Teléfono del adulto')),
+            TextField(controller: pin, maxLength: 4, keyboardType: TextInputType.number, obscureText: true, decoration: const InputDecoration(labelText: 'PIN nuevo')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Restablecer')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await VitaScope.of(context).coordinatorResetElderlyPin(phone: phone.text.trim(), newPin: pin.text.trim());
+      if (context.mounted) {
+        await showVitaMessage(context, 'PIN restablecido. El adulto ya puede ingresar.');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
   }
 }
