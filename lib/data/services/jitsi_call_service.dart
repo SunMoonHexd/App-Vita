@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:jitsi_meet_flutter_sdk/jitsi_meet_flutter_sdk.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vita_app/config/call_settings.dart';
 import 'package:vita_app/config/jaas_secrets.dart';
+import 'package:vita_app/data/services/call_notice.dart';
 import 'package:vita_app/data/services/jaas_token.dart';
 
 /// Videollamadas con JaaS (Jitsi gestionado por 8x8).
@@ -19,6 +21,29 @@ class JitsiCallService {
 
   final Set<String> _remote = {};
   Timer? _aloneTimer;
+  Timer? _breakTimer;
+
+  String _breakMessage(int minutes) {
+    final unit = minutes == 1 ? 'minuto' : 'minutos';
+    return 'Llevan $minutes $unit conversando. Si quieren, pueden tomar una pausa. La llamada continúa.';
+  }
+
+  /// Sugiere una pausa cada cierto tiempo, sin cortar la llamada (RF36).
+  void _startBreakTimer() {
+    _breakTimer?.cancel();
+    _breakTimer = Timer.periodic(kBreakSuggestionAfter, (timer) {
+      final minutes = kBreakSuggestionAfter.inMinutes * timer.tick;
+      final message = _breakMessage(minutes);
+      CallNotice.show(message);
+      // Se repite una vez más para que dé tiempo de leerlo.
+      Future.delayed(const Duration(seconds: 4), () => CallNotice.show(message, vibrate: false));
+    });
+  }
+
+  void _stopTimers() {
+    _aloneTimer?.cancel();
+    _breakTimer?.cancel();
+  }
 
   bool get isNativeSupported =>
       !kIsWeb &&
@@ -38,7 +63,7 @@ class JitsiCallService {
     }
 
     _remote.clear();
-    _aloneTimer?.cancel();
+    _stopTimers();
 
     final token = buildJaasToken(userId: userId, displayName: displayName, roomName: roomName);
 
@@ -101,6 +126,9 @@ class JitsiCallService {
     await _client.join(
       options,
       JitsiMeetEventListener(
+        conferenceJoined: (url) {
+          _startBreakTimer();
+        },
         participantJoined: (email, name, role, participantId) {
           if (participantId != null) _remote.add(participantId);
           _aloneTimer?.cancel();
@@ -116,11 +144,11 @@ class JitsiCallService {
           }
         },
         conferenceTerminated: (url, error) {
-          _aloneTimer?.cancel();
+          _stopTimers();
           onTerminated();
         },
         readyToClose: () {
-          _aloneTimer?.cancel();
+          _stopTimers();
           onTerminated();
         },
       ),
