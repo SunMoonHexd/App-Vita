@@ -221,5 +221,5 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
 }
 
 class VitaRepositoryTimes {
-  static const ring = Duration(seconds: 20);
+  static const ring = Duration(seconds: 30);
 }

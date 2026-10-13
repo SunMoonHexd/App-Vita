@@ -882,12 +882,13 @@ class VitaRepository extends ChangeNotifier {
     final existing = activeRequest;
     if (existing != null) return existing;
 
-    // La sala se deriva del código: otro celular puede entrar a la misma sala.
+    // El código solo sirve para que otro celular encuentre esta solicitud y entre a su sala.
     final code = (_random.nextInt(900000) + 100000).toString();
     final request = CallRequest(
       id: _uuid.v4(),
       elderlyId: user.id,
-      roomName: 'VITA_Acompanamiento_$code',
+      // RF6: sala de nombre aleatorio y único (no derivada del código de 6 dígitos).
+      roomName: 'VITA_${_uuid.v4().replaceAll('-', '')}',
       joinCode: code,
       status: CallRequestStatus.searching,
       createdAt: _now(),
