@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
+import 'package:vita_app/ui/features/elderly/elderly_actions.dart';
 
 class ElderlyEditProfileView extends StatefulWidget {
   const ElderlyEditProfileView({super.key});
@@ -42,7 +43,33 @@ class _ElderlyEditProfileViewState extends State<ElderlyEditProfileView> {
     super.dispose();
   }
 
+  int _digits(String text) => text.replaceAll(RegExp(r'\D'), '').length;
+
+  /// Devuelve el mensaje de qué corregir, o null si todo está bien.
+  String? _validate() {
+    if (_familyName.text.trim().isEmpty) return 'Escribe el nombre de tu familiar responsable.';
+    if (_digits(_familyPhone.text) < 7) return 'Revisa el teléfono de tu familiar.';
+    final altName = _altName.text.trim();
+    final altDigits = _digits(_altPhone.text);
+    if (altName.isEmpty != (altDigits == 0)) {
+      return 'Para el contacto alternativo escribe el nombre y el teléfono, o deja los dos vacíos.';
+    }
+    if (altDigits > 0 && altDigits < 7) return 'Revisa el teléfono del contacto alternativo.';
+    return null;
+  }
+
   Future<void> _save() async {
+    final problem = _validate();
+    if (problem != null) {
+      await showVitaMessage(context, problem);
+      return;
+    }
+    final confirmed = await confirmWithPin(
+      context,
+      title: 'Confirma con tu PIN',
+      subtitle: 'Para guardar los cambios escribe tu PIN.',
+    );
+    if (!confirmed || !mounted) return;
     setState(() => _saving = true);
     try {
       await VitaScope.of(context).updateProfile(

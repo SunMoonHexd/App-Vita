@@ -712,6 +712,25 @@ class VitaRepository extends ChangeNotifier {
   /// Cuántos voluntarios pueden atender en este momento (para el inicio).
   int get availableVolunteerCount => _availableVolunteers().length;
 
+     /// Confirma el PIN actual de la persona (se usa antes de acciones delicadas, RF14 y RF37).
+   Future<void> verifyPin(String pin) async {
+     final user = currentUser;
+     final fbUser = _auth.currentUser;
+     if (user == null || fbUser == null || user.role != UserRole.elderly) {
+       throw Exception('Debes ingresar como adulto mayor.');
+     }
+     final phone = user.phone ?? '';
+     try {
+       final credential = EmailAuthProvider.credential(
+         email: _elderlyEmail(phone),
+         password: _elderlyPassword(pin, phone),
+       );
+       await fbUser.reauthenticateWithCredential(credential);
+     } on FirebaseAuthException catch (e) {
+       throw Exception(_authMessage(e, wrong: 'El PIN no es correcto.'));
+     }
+   }
+
   /// Cambia el PIN del adulto mayor: confirma el actual y guarda el nuevo.
   Future<void> changePin({required String currentPin, required String newPin}) async {
     final user = currentUser;
@@ -766,7 +785,7 @@ class VitaRepository extends ChangeNotifier {
   Future<void> requestAccountDeletion() async {
     final user = currentUser;
     if (user == null) return;
-    _replaceUser(user.copyWith(status: AccountStatus.deleted, available: false));
+       _replaceUser(user.copyWith(status: AccountStatus.deleted, available: false, displayName: 'Cuenta eliminada'));
     await _commit();
     try {
       await _db.collection('private').doc(user.id).delete().timeout(_writeTimeout);

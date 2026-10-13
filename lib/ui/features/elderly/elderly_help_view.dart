@@ -7,8 +7,16 @@ import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 class ElderlyHelpView extends StatelessWidget {
   const ElderlyHelpView({super.key});
 
-  Future<void> _call(String number) async {
-    await launchUrl(Uri.parse('tel:$number'));
+  Future<void> _call(BuildContext context, String number) async {
+    var opened = false;
+    try {
+      opened = await launchUrl(Uri.parse('tel:$number'));
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && context.mounted) {
+      await showVitaMessage(context, 'No se pudo abrir el teléfono. Marca el $number desde tu celular.');
+    }
   }
 
   @override
@@ -42,7 +50,7 @@ class ElderlyHelpView extends StatelessWidget {
             label: 'Llamar a la línea 123',
             icon: Icons.phone_rounded,
             color: VitaColors.alert,
-            onPressed: () => _call('123'),
+            onPressed: () => _call(context, '123'),
           ),
           if (familyPhone.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -50,7 +58,7 @@ class ElderlyHelpView extends StatelessWidget {
               label: 'Llamar a mi familiar',
               icon: Icons.family_restroom_rounded,
               color: VitaColors.secondary,
-              onPressed: () => _call(familyPhone),
+              onPressed: () => _call(context, familyPhone),
             ),
           ],
         ],
