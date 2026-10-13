@@ -927,6 +927,21 @@ class VitaRepository extends ChangeNotifier {
     return list;
   }
 
+  /// Voluntario de la llamada cortada, al que se intenta llamar primero (RF35).
+  String? _preferredVolunteerId;
+
+  /// RF35 – "Llamar de nuevo": crea una solicitud nueva que prefiere al mismo voluntario si sigue
+  /// disponible; si no, el emparejamiento normal busca a otro.
+  Future<CallRequest> recallAfterInterruption(String interruptedRequestId) async {
+    final i = _requests.indexWhere((r) => r.id == interruptedRequestId);
+    _preferredVolunteerId = i < 0 ? null : _requests[i].volunteerId;
+    try {
+      return await startCallRequest();
+    } finally {
+      _preferredVolunteerId = null;
+    }
+  }
+
   Future<CallRequest> assignVolunteer(String requestId) async {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
@@ -935,6 +950,12 @@ class VitaRepository extends ChangeNotifier {
     // Si el único voluntario disponible es el mismo que ya estaba sonando, se le vuelve a avisar
     // (en vez de dar la solicitud por vencida mientras sigue disponible).
     if (candidates.isEmpty) candidates = _availableVolunteers(ignoreRequestId: request.id);
+    // RF35: al "llamar de nuevo" se intenta primero con el mismo voluntario de la llamada cortada.
+    final preferred = _preferredVolunteerId;
+    if (preferred != null) {
+      final i = candidates.indexWhere((u) => u.id == preferred);
+      if (i > 0) candidates.insert(0, candidates.removeAt(i));
+    }
     if (candidates.isEmpty) {
       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
       await _commit();
@@ -1040,6 +1061,8 @@ class VitaRepository extends ChangeNotifier {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) return;
     final request = _requests[index];
+    // La señal de "se cortó" puede llegar antes que la de "terminó": no se sobrescribe.
+    if (request.status == CallRequestStatus.interrupted && status == CallRequestStatus.completed) return;
     // Una "llamada" de menos de 15 segundos casi seguro falló: no cuenta como completada.
     var finalStatus = status;
     if (status == CallRequestStatus.completed &&
@@ -1076,6 +1099,10 @@ class VitaRepository extends ChangeNotifier {
       userId: user.id,
       onTerminated: () {
         finishCall(request.id);
+      },
+      // RF35: una llamada que se corta por un problema queda como "interrumpida".
+      onInterrupted: () {
+        finishCall(request.id, status: CallRequestStatus.interrupted);
       },
     );
   }

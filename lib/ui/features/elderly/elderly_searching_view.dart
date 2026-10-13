@@ -47,9 +47,12 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     Navigator.pop(context);
   }
 
-  Future<void> _start() async {
+  Future<void> _start({String? recallOf}) async {
     try {
-      final request = await VitaScope.of(context).startCallRequest();
+      final repo = VitaScope.of(context);
+      final request = recallOf == null
+          ? await repo.startCallRequest()
+          : await repo.recallAfterInterruption(recallOf);
       if (!mounted) return;
       setState(() => _request = request);
       _repo = VitaScope.of(context);
@@ -123,13 +126,28 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
           (r) => r?.id == _request?.id,
           orElse: () => _request,
         );
+    var recall = false;
     if (request != null) {
-      await Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (_) => SurveyView(request: request, askAccompanied: true),
-        ),
-      );
+      recall = await Navigator.push<bool>(
+            context,
+            MaterialPageRoute<bool>(
+              builder: (_) => SurveyView(request: request, askAccompanied: true),
+            ),
+          ) ??
+          false;
+    }
+    // RF35: si la llamada se cortó y la persona pidió "Llamar de nuevo", se empieza otra búsqueda
+    // en esta misma pantalla (con el mismo voluntario si sigue disponible).
+    if (recall && request != null && mounted) {
+      _ringTimer?.cancel();
+      _repo?.removeListener(_onRepoChanged);
+      setState(() {
+        _request = null;
+        _error = null;
+        _joining = false;
+      });
+      await _start(recallOf: request.id);
+      return;
     }
     _close();
   }

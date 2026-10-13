@@ -55,6 +55,7 @@ class JitsiCallService {
     required String displayName,
     required String userId,
     required VoidCallback onTerminated,
+    VoidCallback? onInterrupted,
   }) async {
     if (!jaasConfigured) {
       throw Exception(
@@ -145,7 +146,12 @@ class JitsiCallService {
         },
         conferenceTerminated: (url, error) {
           _stopTimers();
-          onTerminated();
+          // Con `error` la llamada se cortó por un problema (red, servidor); sin él, alguien colgó.
+          if (error != null && onInterrupted != null) {
+            onInterrupted();
+          } else {
+            onTerminated();
+          }
         },
         readyToClose: () {
           _stopTimers();

@@ -38,6 +38,29 @@ class _SurveyViewState extends State<SurveyView> {
       title: '¿Cómo te fue?',
       child: ListView(
         children: [
+          // RF35: solo el adulto mayor, y solo si la llamada se cortó.
+          ListenableBuilder(
+            listenable: VitaScope.of(context),
+            builder: (context, _) {
+              final current = VitaScope.of(context).requests.cast<CallRequest?>().firstWhere(
+                    (r) => r?.id == widget.request.id,
+                    orElse: () => null,
+                  );
+              final cut = widget.askAccompanied && current?.status == CallRequestStatus.interrupted;
+              if (!cut) return const SizedBox.shrink();
+              return Column(
+                children: [
+                  const Text(
+                    'La llamada se cortó.',
+                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
+                  ),
+                  const SizedBox(height: 12),
+                  VitaPrimaryButton(label: 'Llamar de nuevo', onPressed: () => Navigator.pop(context, true)),
+                  const SizedBox(height: 28),
+                ],
+              );
+            },
+          ),
           const Text('¿Cómo fue la experiencia?'),
           const SizedBox(height: 8),
           _Faces(value: _experience, onChanged: (v) => setState(() => _experience = v)),

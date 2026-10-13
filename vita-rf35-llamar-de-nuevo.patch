@@ -1,0 +1,173 @@
+diff --git a/lib/data/repositories/vita_repository.dart b/lib/data/repositories/vita_repository.dart
+index 17d3c43..c233fd0 100644
+--- a/lib/data/repositories/vita_repository.dart
++++ b/lib/data/repositories/vita_repository.dart
+@@ -927,6 +927,21 @@ class VitaRepository extends ChangeNotifier {
+     return list;
+   }
+ 
++  /// Voluntario de la llamada cortada, al que se intenta llamar primero (RF35).
++  String? _preferredVolunteerId;
++
++  /// RF35 – "Llamar de nuevo": crea una solicitud nueva que prefiere al mismo voluntario si sigue
++  /// disponible; si no, el emparejamiento normal busca a otro.
++  Future<CallRequest> recallAfterInterruption(String interruptedRequestId) async {
++    final i = _requests.indexWhere((r) => r.id == interruptedRequestId);
++    _preferredVolunteerId = i < 0 ? null : _requests[i].volunteerId;
++    try {
++      return await startCallRequest();
++    } finally {
++      _preferredVolunteerId = null;
++    }
++  }
++
+   Future<CallRequest> assignVolunteer(String requestId) async {
+     final index = _requests.indexWhere((r) => r.id == requestId);
+     if (index < 0) throw Exception('Solicitud no encontrada.');
+@@ -935,6 +950,12 @@ class VitaRepository extends ChangeNotifier {
+     // Si el único voluntario disponible es el mismo que ya estaba sonando, se le vuelve a avisar
+     // (en vez de dar la solicitud por vencida mientras sigue disponible).
+     if (candidates.isEmpty) candidates = _availableVolunteers(ignoreRequestId: request.id);
++    // RF35: al "llamar de nuevo" se intenta primero con el mismo voluntario de la llamada cortada.
++    final preferred = _preferredVolunteerId;
++    if (preferred != null) {
++      final i = candidates.indexWhere((u) => u.id == preferred);
++      if (i > 0) candidates.insert(0, candidates.removeAt(i));
++    }
+     if (candidates.isEmpty) {
+       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
+       await _commit();
+@@ -1040,6 +1061,8 @@ class VitaRepository extends ChangeNotifier {
+     final index = _requests.indexWhere((r) => r.id == requestId);
+     if (index < 0) return;
+     final request = _requests[index];
++    // La señal de "se cortó" puede llegar antes que la de "terminó": no se sobrescribe.
++    if (request.status == CallRequestStatus.interrupted && status == CallRequestStatus.completed) return;
+     // Una "llamada" de menos de 15 segundos casi seguro falló: no cuenta como completada.
+     var finalStatus = status;
+     if (status == CallRequestStatus.completed &&
+@@ -1077,6 +1100,10 @@ class VitaRepository extends ChangeNotifier {
+       onTerminated: () {
+         finishCall(request.id);
+       },
++      // RF35: una llamada que se corta por un problema queda como "interrumpida".
++      onInterrupted: () {
++        finishCall(request.id, status: CallRequestStatus.interrupted);
++      },
+     );
+   }
+ 
+diff --git a/lib/data/services/jitsi_call_service.dart b/lib/data/services/jitsi_call_service.dart
+index 590e7ae..f5c896c 100644
+--- a/lib/data/services/jitsi_call_service.dart
++++ b/lib/data/services/jitsi_call_service.dart
+@@ -55,6 +55,7 @@ class JitsiCallService {
+     required String displayName,
+     required String userId,
+     required VoidCallback onTerminated,
++    VoidCallback? onInterrupted,
+   }) async {
+     if (!jaasConfigured) {
+       throw Exception(
+@@ -145,7 +146,12 @@ class JitsiCallService {
+         },
+         conferenceTerminated: (url, error) {
+           _stopTimers();
+-          onTerminated();
++          // Con `error` la llamada se cortó por un problema (red, servidor); sin él, alguien colgó.
++          if (error != null && onInterrupted != null) {
++            onInterrupted();
++          } else {
++            onTerminated();
++          }
+         },
+         readyToClose: () {
+           _stopTimers();
+diff --git a/lib/ui/features/elderly/elderly_searching_view.dart b/lib/ui/features/elderly/elderly_searching_view.dart
+index 276a4c7..7e74880 100644
+--- a/lib/ui/features/elderly/elderly_searching_view.dart
++++ b/lib/ui/features/elderly/elderly_searching_view.dart
+@@ -47,9 +47,12 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+     Navigator.pop(context);
+   }
+ 
+-  Future<void> _start() async {
++  Future<void> _start({String? recallOf}) async {
+     try {
+-      final request = await VitaScope.of(context).startCallRequest();
++      final repo = VitaScope.of(context);
++      final request = recallOf == null
++          ? await repo.startCallRequest()
++          : await repo.recallAfterInterruption(recallOf);
+       if (!mounted) return;
+       setState(() => _request = request);
+       _repo = VitaScope.of(context);
+@@ -123,13 +126,28 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
+           (r) => r?.id == _request?.id,
+           orElse: () => _request,
+         );
++    var recall = false;
+     if (request != null) {
+-      await Navigator.push(
+-        context,
+-        MaterialPageRoute(
+-          builder: (_) => SurveyView(request: request, askAccompanied: true),
+-        ),
+-      );
++      recall = await Navigator.push<bool>(
++            context,
++            MaterialPageRoute<bool>(
++              builder: (_) => SurveyView(request: request, askAccompanied: true),
++            ),
++          ) ??
++          false;
++    }
++    // RF35: si la llamada se cortó y la persona pidió "Llamar de nuevo", se empieza otra búsqueda
++    // en esta misma pantalla (con el mismo voluntario si sigue disponible).
++    if (recall && request != null && mounted) {
++      _ringTimer?.cancel();
++      _repo?.removeListener(_onRepoChanged);
++      setState(() {
++        _request = null;
++        _error = null;
++        _joining = false;
++      });
++      await _start(recallOf: request.id);
++      return;
+     }
+     _close();
+   }
+diff --git a/lib/ui/features/shared/survey_view.dart b/lib/ui/features/shared/survey_view.dart
+index dc9a774..9c5e940 100644
+--- a/lib/ui/features/shared/survey_view.dart
++++ b/lib/ui/features/shared/survey_view.dart
+@@ -38,6 +38,29 @@ class _SurveyViewState extends State<SurveyView> {
+       title: '¿Cómo te fue?',
+       child: ListView(
+         children: [
++          // RF35: solo el adulto mayor, y solo si la llamada se cortó.
++          ListenableBuilder(
++            listenable: VitaScope.of(context),
++            builder: (context, _) {
++              final current = VitaScope.of(context).requests.cast<CallRequest?>().firstWhere(
++                    (r) => r?.id == widget.request.id,
++                    orElse: () => null,
++                  );
++              final cut = widget.askAccompanied && current?.status == CallRequestStatus.interrupted;
++              if (!cut) return const SizedBox.shrink();
++              return Column(
++                children: [
++                  const Text(
++                    'La llamada se cortó.',
++                    style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
++                  ),
++                  const SizedBox(height: 12),
++                  VitaPrimaryButton(label: 'Llamar de nuevo', onPressed: () => Navigator.pop(context, true)),
++                  const SizedBox(height: 28),
++                ],
++              );
++            },
++          ),
+           const Text('¿Cómo fue la experiencia?'),
+           const SizedBox(height: 8),
+           _Faces(value: _experience, onChanged: (v) => setState(() => _experience = v)),
