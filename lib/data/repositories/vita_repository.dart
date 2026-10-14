@@ -129,6 +129,11 @@ class VitaRepository extends ChangeNotifier {
   /// Último problema de sincronización (útil para depurar).
   String? lastSyncError;
 
+  /// Aviso para mostrar cuando coordinación suspende o bloquea la cuenta mientras la persona
+  /// tiene la sesión abierta. La pantalla principal lo muestra una vez y lo borra.
+  String? accessNotice;
+  bool _closingForAccess = false;
+
   JitsiCallService get jitsi => _jitsi;
 
   VitaUser? get currentUser =>
@@ -731,6 +736,37 @@ class VitaRepository extends ChangeNotifier {
      }
    }
 
+  /// Confirma la contraseña actual del voluntario (RF14). Lanza un mensaje claro si no coincide.
+  Future<void> verifyPassword(String password) async {
+    final user = currentUser;
+    final fbUser = _auth.currentUser;
+    final email = fbUser?.email;
+    if (user == null || fbUser == null || email == null || user.role != UserRole.volunteer) {
+      throw Exception('Debes ingresar como voluntario.');
+    }
+    try {
+      await fbUser.reauthenticateWithCredential(EmailAuthProvider.credential(email: email, password: password));
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_authMessage(e, wrong: 'La contraseña no es correcta.'));
+    }
+  }
+
+  /// Cambia la contraseña del voluntario: confirma la actual y guarda la nueva (RF14).
+  Future<void> changeVolunteerPassword({required String currentPassword, required String newPassword}) async {
+    if (newPassword.length < 6) {
+      throw Exception('La contraseña nueva debe tener al menos 6 caracteres.');
+    }
+    if (newPassword == currentPassword) {
+      throw Exception('La contraseña nueva debe ser distinta a la actual.');
+    }
+    await verifyPassword(currentPassword);
+    try {
+      await _auth.currentUser!.updatePassword(newPassword);
+    } on FirebaseAuthException catch (e) {
+      throw Exception(_authMessage(e, wrong: 'No se pudo cambiar la contraseña.'));
+    }
+  }
+
   /// Cambia el PIN del adulto mayor: confirma el actual y guarda el nuevo.
   Future<void> changePin({required String currentPin, required String newPin}) async {
     final user = currentUser;
@@ -1185,6 +1221,16 @@ class VitaRepository extends ChangeNotifier {
     await _commit();
   }
 
+  /// RF9: suspende la cuenta reportada mientras coordinación revisa el reporte (que sigue pendiente).
+  Future<void> suspendWhileReviewing(String reportId) async {
+    final index = _reports.indexWhere((r) => r.id == reportId);
+    if (index < 0) return;
+    final i = _indexOf(_reports[index].reportedId);
+    if (i < 0) return;
+    _users[i] = _users[i].copyWith(status: AccountStatus.suspended, available: false);
+    await _commit();
+  }
+
   Future<void> setAccountStatus(String userId, AccountStatus status) async {
     final i = _indexOf(userId);
     if (i < 0) return;
@@ -1409,7 +1455,28 @@ class VitaRepository extends ChangeNotifier {
       _pubById[id] = Map<String, dynamic>.from(data);
       _upsertUser(id);
     }
+    _checkOwnAccess();
     notifyListeners();
+  }
+
+  /// RF9: si la cuenta con la sesión abierta quedó suspendida o bloqueada, se cierra la sesión
+  /// y se deja un aviso. Antes solo se revisaba al iniciar sesión.
+  void _checkOwnAccess() {
+    final me = currentUser;
+    if (me == null || _closingForAccess) return;
+    if (me.status != AccountStatus.suspended && me.status != AccountStatus.blocked) return;
+    _closingForAccess = true;
+    accessNotice = me.status == AccountStatus.blocked
+        ? 'Coordinación bloqueó tu cuenta. Comunícate con coordinación para más información.'
+        : 'Coordinación suspendió tu cuenta mientras revisa un reporte. Comunícate con coordinación para más información.';
+    // Se sale fuera del listener de Firestore, en el siguiente ciclo.
+    Future<void>(() async {
+      try {
+        await logout();
+      } finally {
+        _closingForAccess = false;
+      }
+    });
   }
 
   void _onPrivateAll(QuerySnapshot<Map<String, dynamic>> snap) {

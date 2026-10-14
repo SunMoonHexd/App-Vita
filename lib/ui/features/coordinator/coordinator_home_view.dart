@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
@@ -53,26 +54,48 @@ class CoordinatorHomeView extends StatelessWidget {
           for (final report in repo.reports)
             ListTile(
               title: Text(report.reason),
-              subtitle: Text('Estado: ${report.status.name}\n${report.comment ?? ''}'),
+              subtitle: Text(
+                'Reportado: ${repo.userById(report.reportedId)?.displayName ?? 'desconocido'} '
+                '(cuenta ${repo.userById(report.reportedId)?.status.name ?? '-'})\n'
+                'Estado: ${report.status.name}\n${report.comment ?? ''}',
+              ),
               isThreeLine: true,
-              trailing: PopupMenuButton<ReportStatus>(
-                onSelected: (status) => repo.resolveReport(report.id, status),
+              trailing: PopupMenuButton<Object>(
+                onSelected: (value) {
+                  if (value == 'review') {
+                    repo.suspendWhileReviewing(report.id);
+                  } else if (value == 'reactivate') {
+                    repo.setAccountStatus(report.reportedId, AccountStatus.active);
+                  } else if (value is ReportStatus) {
+                    repo.resolveReport(report.id, value);
+                  }
+                },
                 itemBuilder: (context) => const [
-                  PopupMenuItem(value: ReportStatus.archived, child: Text('Archivar')),
-                  PopupMenuItem(value: ReportStatus.warned, child: Text('Advertir')),
-                  PopupMenuItem(value: ReportStatus.suspended, child: Text('Suspender')),
-                  PopupMenuItem(value: ReportStatus.blocked, child: Text('Bloquear')),
+                  PopupMenuItem<Object>(value: 'review', child: Text('Suspender mientras se revisa')),
+                  PopupMenuItem<Object>(value: ReportStatus.archived, child: Text('Archivar')),
+                  PopupMenuItem<Object>(value: ReportStatus.warned, child: Text('Advertir')),
+                  PopupMenuItem<Object>(value: ReportStatus.suspended, child: Text('Suspender')),
+                  PopupMenuItem<Object>(value: ReportStatus.blocked, child: Text('Bloquear')),
+                  PopupMenuItem<Object>(value: 'reactivate', child: Text('Reactivar cuenta')),
                 ],
               ),
             ),
           const Divider(),
-          const Text('Alertas de emergencia', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-          for (final alert in repo.alerts)
+          const Text('Cuentas suspendidas o bloqueadas', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          if (repo.users.every((u) => u.status != AccountStatus.suspended && u.status != AccountStatus.blocked))
+            const Padding(padding: EdgeInsets.symmetric(vertical: 8), child: Text('No hay cuentas suspendidas ni bloqueadas.')),
+          for (final user in repo.users.where((u) => u.status == AccountStatus.suspended || u.status == AccountStatus.blocked))
             ListTile(
-              leading: const Icon(Icons.emergency, color: VitaColors.alert),
-              title: Text(alert.note ?? 'Alerta'),
-              subtitle: Text(alert.createdAt.toLocal().toString()),
+              title: Text(user.displayName),
+              subtitle: Text('${user.role.name} · ${user.status.name}'),
+              trailing: TextButton(
+                onPressed: () => repo.setAccountStatus(user.id, AccountStatus.active),
+                child: const Text('Reactivar'),
+              ),
             ),
+          const Divider(),
+          const Text('Alertas de emergencia', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          for (final alert in repo.alerts) _AlertCard(alert: alert),
           const Divider(),
           const Text('Historial de llamadas', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           for (final call in repo.requests.reversed)
@@ -121,5 +144,71 @@ class CoordinatorHomeView extends StatelessWidget {
         await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
       }
     }
+  }
+}
+
+/// Alerta de emergencia con el contacto del familiar a un toque (RF11).
+class _AlertCard extends StatelessWidget {
+  const _AlertCard({required this.alert});
+
+  final EmergencyAlert alert;
+
+  /// Deja solo los dígitos y, si son 10 (celular colombiano), antepone el 57.
+  String _international(String phone) {
+    final digits = phone.replaceAll(RegExp(r'\D'), '');
+    return digits.length == 10 ? '57$digits' : digits;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elderly = VitaScope.of(context).userById(alert.elderlyId);
+    final familyPhone = elderly?.familyPhone;
+    final altPhone = elderly?.alternatePhone;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.emergency, color: VitaColors.alert),
+                const SizedBox(width: 8),
+                Expanded(child: Text(alert.note ?? 'Alerta', style: const TextStyle(fontWeight: FontWeight.w700))),
+              ],
+            ),
+            Text('${elderly?.displayName ?? 'Adulto mayor'} · ${alert.createdAt.toLocal()}'),
+            if (familyPhone != null && familyPhone.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Familiar: ${elderly?.familyName ?? ''} · $familyPhone'),
+              Wrap(
+                spacing: 8,
+                children: [
+                  TextButton.icon(
+                    icon: const Icon(Icons.call),
+                    label: const Text('Llamar al familiar'),
+                    onPressed: () => launchUrl(Uri.parse('tel:$familyPhone')),
+                  ),
+                  TextButton.icon(
+                    icon: const Icon(Icons.chat),
+                    label: const Text('WhatsApp'),
+                    onPressed: () => launchUrl(
+                      Uri.parse('https://wa.me/${_international(familyPhone)}'),
+                      mode: LaunchMode.externalApplication,
+                    ),
+                  ),
+                ],
+              ),
+            ],
+            if (altPhone != null && altPhone.isNotEmpty)
+              TextButton.icon(
+                icon: const Icon(Icons.call),
+                label: Text('Contacto alternativo: ${elderly?.alternateName ?? ''} · $altPhone'),
+                onPressed: () => launchUrl(Uri.parse('tel:$altPhone')),
+              ),
+          ],
+        ),
+      ),
+    );
   }
 }

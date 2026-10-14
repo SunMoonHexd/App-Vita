@@ -3,6 +3,7 @@ import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
+import 'package:vita_app/ui/features/shared/report_view.dart';
 
 class SurveyView extends StatefulWidget {
   const SurveyView({super.key, required this.request, required this.askAccompanied});
@@ -15,6 +16,9 @@ class SurveyView extends StatefulWidget {
 }
 
 class _SurveyViewState extends State<SurveyView> {
+  /// Persona que se puede reportar desde esta encuesta (la otra parte de la llamada).
+  String? get _reportedId => widget.askAccompanied ? widget.request.volunteerId : widget.request.elderlyId;
+
   int? _experience;
   int? _accompanied;
 
@@ -46,7 +50,7 @@ class _SurveyViewState extends State<SurveyView> {
                     (r) => r?.id == widget.request.id,
                     orElse: () => null,
                   );
-              final cut = widget.askAccompanied && current?.status == CallRequestStatus.interrupted;
+              final cut = current?.status == CallRequestStatus.interrupted;
               if (!cut) return const SizedBox.shrink();
               return Column(
                 children: [
@@ -55,7 +59,14 @@ class _SurveyViewState extends State<SurveyView> {
                     style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800),
                   ),
                   const SizedBox(height: 12),
-                  VitaPrimaryButton(label: 'Llamar de nuevo', onPressed: () => Navigator.pop(context, true)),
+                  if (widget.askAccompanied)
+                    // Solo el adulto mayor puede pedir la llamada de nuevo (RF35).
+                    VitaPrimaryButton(label: 'Llamar de nuevo', onPressed: () => Navigator.pop(context, true))
+                  else
+                    const Text(
+                      'Gracias por acompañar. Si la persona vuelve a llamar, es posible que te llegue una nueva solicitud.',
+                      textAlign: TextAlign.center,
+                    ),
                   const SizedBox(height: 28),
                 ],
               );
@@ -72,6 +83,15 @@ class _SurveyViewState extends State<SurveyView> {
           ],
           const SizedBox(height: 28),
           VitaPrimaryButton(label: 'Enviar', onPressed: _experience == null ? null : _send),
+          // Reportar a la otra persona de la llamada: el adulto mayor reporta al voluntario y al revés.
+          if (_reportedId != null)
+            TextButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => ReportView(request: widget.request, reportedId: _reportedId!)),
+              ),
+              child: Text(widget.askAccompanied ? 'Reportar al voluntario' : 'Reportar al adulto mayor'),
+            ),
           TextButton(onPressed: () => Navigator.pop(context), child: const Text('Ahora no')),
         ],
       ),

@@ -1,12 +1,14 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 import 'package:vita_app/ui/features/shared/report_view.dart';
 import 'package:vita_app/ui/features/shared/survey_view.dart';
+import 'package:vita_app/ui/features/volunteer/volunteer_profile_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_schedule_view.dart';
 
 class VolunteerHomeView extends StatefulWidget {
@@ -88,7 +90,25 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
       elderlyId: request.elderlyId,
       note: 'Alerta activada por el voluntario',
     );
-    await showVitaMessage(context, 'Alerta registrada. Si hay riesgo vital, llama al 123.');
+    if (!mounted) return;
+    // RF11: se registra la alerta para coordinación y se ofrece marcar la línea 123.
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Alerta registrada'),
+        content: const Text('Coordinación ya puede verla y avisar al familiar. Si hay riesgo vital, llama al 123.'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context), child: const Text('Cerrar')),
+          FilledButton(
+            onPressed: () async {
+              await launchUrl(Uri.parse('tel:123'));
+              if (context.mounted) Navigator.pop(context);
+            },
+            child: const Text('Marcar 123'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -98,10 +118,19 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
     if (user == null) return const VitaPage(title: 'Voluntario', child: Text('Sesión cerrada'));
     final incoming = repo.requests.where((r) => r.volunteerId == user.id && r.status == CallRequestStatus.ringing).toList();
     final hours = repo.volunteerHours(user.id);
+    final active = repo.requests.cast<CallRequest?>().firstWhere(
+          (r) => r?.volunteerId == user.id && r?.status == CallRequestStatus.connected,
+          orElse: () => null,
+        );
 
     return VitaPage(
       title: 'Hola, ${user.displayName}',
       actions: [
+        IconButton(
+          icon: const Icon(Icons.person),
+          tooltip: 'Mis datos',
+          onPressed: () => Navigator.push(context, MaterialPageRoute(builder: (_) => const VolunteerProfileView())),
+        ),
         IconButton(
           icon: const Icon(Icons.logout),
           onPressed: () async {
@@ -160,10 +189,36 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                 ),
               ),
             ),
+          // RF11: durante una llamada en curso, el voluntario puede activar la alerta o reportar.
+          if (active != null)
+            Card(
+              color: VitaColors.tint,
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  children: [
+                    const Text('Llamada en curso', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
+                    TextButton(
+                      onPressed: () => _emergency(active),
+                      child: const Text('Alerta de emergencia'),
+                    ),
+                    TextButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => ReportView(request: active, reportedId: active.elderlyId),
+                        ),
+                      ),
+                      child: const Text('Reportar'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           const SizedBox(height: 16),
           const Text('Unirse con código (otro celular)'),
           const SizedBox(height: 8),
-          TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Código de 4 dígitos')),
+          TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Código de 6 dígitos')),
           const SizedBox(height: 8),
           VitaPrimaryButton(label: 'Unirme a la sala', color: VitaColors.secondary, onPressed: _joinCode),
           const SizedBox(height: 16),
