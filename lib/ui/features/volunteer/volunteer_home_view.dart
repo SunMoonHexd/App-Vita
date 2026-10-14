@@ -218,7 +218,12 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
           const SizedBox(height: 16),
           const Text('Unirse con código (otro celular)'),
           const SizedBox(height: 8),
-          TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Código de 6 dígitos')),
+          TextField(
+            controller: _code,
+            maxLength: 6,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Código de 6 dígitos'),
+          ),
           const SizedBox(height: 8),
           VitaPrimaryButton(label: 'Unirme a la sala', color: VitaColors.secondary, onPressed: _joinCode),
           const SizedBox(height: 16),

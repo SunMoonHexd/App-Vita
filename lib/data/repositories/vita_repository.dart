@@ -179,7 +179,7 @@ class VitaRepository extends ChangeNotifier {
 
   bool get isWithinServiceHours {
     if (demoBypassSchedule) return true;
-    final hour = _now().hour;
+    final hour = _colombiaNow().hour;
     return hour >= serviceStartHour && hour < serviceEndHour;
   }
 
@@ -853,8 +853,13 @@ class VitaRepository extends ChangeNotifier {
     await _commit();
   }
 
+  /// Hora de Colombia (UTC-5, sin horario de verano), sin importar la zona horaria del celular.
+  /// Los horarios de atención y las franjas de los voluntarios se miden con esta hora; si no,
+  /// un emulador en UTC o un celular mal configurado dan "fuera de tu horario" a deshoras.
+  DateTime _colombiaNow() => _now().toUtc().subtract(const Duration(hours: 5));
+
   bool isVolunteerInShift(String volunteerId) {
-    final now = _now();
+    final now = _colombiaNow();
     final slots = slotsFor(volunteerId);
     if (slots.isEmpty) return true;
     return slots.any((s) => s.weekday == now.weekday && now.hour >= s.startHour && now.hour < s.endHour);
@@ -1129,18 +1134,46 @@ class VitaRepository extends ChangeNotifier {
     if (user == null || request == null) {
       throw Exception('No hay una llamada activa.');
     }
-    await _jitsi.join(
-      roomName: request.roomName,
-      displayName: user.displayName,
-      userId: user.id,
-      onTerminated: () {
-        finishCall(request.id);
-      },
-      // RF35: una llamada que se corta por un problema queda como "interrumpida".
-      onInterrupted: () {
-        finishCall(request.id, status: CallRequestStatus.interrupted);
-      },
-    );
+    _callInProgressId = request.id;
+    try {
+      await _jitsi.join(
+        roomName: request.roomName,
+        displayName: user.displayName,
+        userId: user.id,
+        onTerminated: () {
+          _callInProgressId = null;
+          finishCall(request.id);
+        },
+        // RF35: una llamada que se corta por un problema queda como "interrumpida".
+        onInterrupted: () {
+          _callInProgressId = null;
+          finishCall(request.id, status: CallRequestStatus.interrupted);
+        },
+      );
+    } catch (_) {
+      _callInProgressId = null;
+      rethrow;
+    }
+  }
+
+  /// Llamada de Jitsi que este celular tiene abierta ahora mismo.
+  String? _callInProgressId;
+
+  /// Si la otra persona ya terminó la llamada (se ve en Firestore), se cuelga la de este celular.
+  /// Jitsi solo avisa cuando alguien SE VA; si uno cuelga antes de que el otro llegue a conectarse,
+  /// el que queda se quedaría solo en la sala sin que nada lo saque.
+  void _hangUpIfEnded() {
+    final id = _callInProgressId;
+    if (id == null) return;
+    final i = _requests.indexWhere((r) => r.id == id);
+    if (i < 0) return;
+    final status = _requests[i].status;
+    if (status == CallRequestStatus.completed ||
+        status == CallRequestStatus.interrupted ||
+        status == CallRequestStatus.cancelled) {
+      _callInProgressId = null;
+      _jitsi.hangUp();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -1410,7 +1443,10 @@ class VitaRepository extends ChangeNotifier {
 
     if (role == UserRole.coordinator) {
       _subs.add(_db.collection('private').snapshots().listen(_onPrivateAll, onError: _onSyncError));
-      _listen(_db.collection('requests'), (snap) => _applySnapshot(_requestsSync, snap));
+      _listen(_db.collection('requests'), (snap) {
+        _applySnapshot(_requestsSync, snap);
+        _hangUpIfEnded();
+      });
       _listen(_db.collection('reports'), (snap) => _applySnapshot(_reportsSync, snap));
       _listen(_db.collection('alerts'), (snap) => _applySnapshot(_alertsSync, snap));
       _listen(_db.collection('surveys'), (snap) => _applySnapshot(_surveysSync, snap));
@@ -1419,7 +1455,10 @@ class VitaRepository extends ChangeNotifier {
       final field = role == UserRole.elderly ? 'elderlyId' : 'volunteerId';
       _listen(
         _db.collection('requests').where(field, isEqualTo: me),
-        (snap) => _applySnapshot(_requestsSync, snap),
+        (snap) {
+          _applySnapshot(_requestsSync, snap);
+          _hangUpIfEnded();
+        },
       );
     }
   }

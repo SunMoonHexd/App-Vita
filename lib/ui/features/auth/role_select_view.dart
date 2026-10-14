@@ -116,26 +116,6 @@ class RoleSelectView extends StatelessWidget {
                       label: const Text('Entrar como coordinación'),
                     ),
                   ),
-                  Theme(
-                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-                    child: const ExpansionTile(
-                      tilePadding: EdgeInsets.zero,
-                      childrenPadding: EdgeInsets.only(bottom: 8),
-                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
-                      title: Text(
-                        'Cuentas de demostración',
-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                      ),
-                      children: [
-                        Text(
-                          'Adulto: 3001112233 / PIN 1234\n'
-                          'Voluntario: voluntario@vita.app / Voluntario1\n'
-                          'Coordinación: coordinacion@vita.app / CoordVita1',
-                          style: TextStyle(fontSize: 15, height: 1.6, color: VitaColors.muted),
-                        ),
-                      ],
-                    ),
-                  ),
                 ],
               ),
             ),

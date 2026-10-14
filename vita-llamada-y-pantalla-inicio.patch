@@ -1,0 +1,153 @@
+diff --git a/lib/data/repositories/vita_repository.dart b/lib/data/repositories/vita_repository.dart
+index 25aefae..34e9823 100644
+--- a/lib/data/repositories/vita_repository.dart
++++ b/lib/data/repositories/vita_repository.dart
+@@ -1129,18 +1129,46 @@ class VitaRepository extends ChangeNotifier {
+     if (user == null || request == null) {
+       throw Exception('No hay una llamada activa.');
+     }
+-    await _jitsi.join(
+-      roomName: request.roomName,
+-      displayName: user.displayName,
+-      userId: user.id,
+-      onTerminated: () {
+-        finishCall(request.id);
+-      },
+-      // RF35: una llamada que se corta por un problema queda como "interrumpida".
+-      onInterrupted: () {
+-        finishCall(request.id, status: CallRequestStatus.interrupted);
+-      },
+-    );
++    _callInProgressId = request.id;
++    try {
++      await _jitsi.join(
++        roomName: request.roomName,
++        displayName: user.displayName,
++        userId: user.id,
++        onTerminated: () {
++          _callInProgressId = null;
++          finishCall(request.id);
++        },
++        // RF35: una llamada que se corta por un problema queda como "interrumpida".
++        onInterrupted: () {
++          _callInProgressId = null;
++          finishCall(request.id, status: CallRequestStatus.interrupted);
++        },
++      );
++    } catch (_) {
++      _callInProgressId = null;
++      rethrow;
++    }
++  }
++
++  /// Llamada de Jitsi que este celular tiene abierta ahora mismo.
++  String? _callInProgressId;
++
++  /// Si la otra persona ya terminó la llamada (se ve en Firestore), se cuelga la de este celular.
++  /// Jitsi solo avisa cuando alguien SE VA; si uno cuelga antes de que el otro llegue a conectarse,
++  /// el que queda se quedaría solo en la sala sin que nada lo saque.
++  void _hangUpIfEnded() {
++    final id = _callInProgressId;
++    if (id == null) return;
++    final i = _requests.indexWhere((r) => r.id == id);
++    if (i < 0) return;
++    final status = _requests[i].status;
++    if (status == CallRequestStatus.completed ||
++        status == CallRequestStatus.interrupted ||
++        status == CallRequestStatus.cancelled) {
++      _callInProgressId = null;
++      _jitsi.hangUp();
++    }
+   }
+ 
+   // ---------------------------------------------------------------------------
+@@ -1410,7 +1438,10 @@ class VitaRepository extends ChangeNotifier {
+ 
+     if (role == UserRole.coordinator) {
+       _subs.add(_db.collection('private').snapshots().listen(_onPrivateAll, onError: _onSyncError));
+-      _listen(_db.collection('requests'), (snap) => _applySnapshot(_requestsSync, snap));
++      _listen(_db.collection('requests'), (snap) {
++        _applySnapshot(_requestsSync, snap);
++        _hangUpIfEnded();
++      });
+       _listen(_db.collection('reports'), (snap) => _applySnapshot(_reportsSync, snap));
+       _listen(_db.collection('alerts'), (snap) => _applySnapshot(_alertsSync, snap));
+       _listen(_db.collection('surveys'), (snap) => _applySnapshot(_surveysSync, snap));
+@@ -1419,7 +1450,10 @@ class VitaRepository extends ChangeNotifier {
+       final field = role == UserRole.elderly ? 'elderlyId' : 'volunteerId';
+       _listen(
+         _db.collection('requests').where(field, isEqualTo: me),
+-        (snap) => _applySnapshot(_requestsSync, snap),
++        (snap) {
++          _applySnapshot(_requestsSync, snap);
++          _hangUpIfEnded();
++        },
+       );
+     }
+   }
+diff --git a/lib/data/services/jitsi_call_service.dart b/lib/data/services/jitsi_call_service.dart
+index f5c896c..385e008 100644
+--- a/lib/data/services/jitsi_call_service.dart
++++ b/lib/data/services/jitsi_call_service.dart
+@@ -19,6 +19,12 @@ class JitsiCallService {
+   /// Margen antes de colgar sola cuando la otra persona se va (por si se le cae el internet un instante).
+   static const Duration _aloneGrace = Duration(seconds: 5);
+ 
++  /// Cuelga la videollamada en curso (por ejemplo, cuando la otra persona ya terminó la llamada).
++  void hangUp() {
++    _stopTimers();
++    _client.hangUp();
++  }
++
+   final Set<String> _remote = {};
+   Timer? _aloneTimer;
+   Timer? _breakTimer;
+diff --git a/lib/ui/features/auth/role_select_view.dart b/lib/ui/features/auth/role_select_view.dart
+index e81af1a..17c4100 100644
+--- a/lib/ui/features/auth/role_select_view.dart
++++ b/lib/ui/features/auth/role_select_view.dart
+@@ -116,26 +116,6 @@ class RoleSelectView extends StatelessWidget {
+                       label: const Text('Entrar como coordinación'),
+                     ),
+                   ),
+-                  Theme(
+-                    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+-                    child: const ExpansionTile(
+-                      tilePadding: EdgeInsets.zero,
+-                      childrenPadding: EdgeInsets.only(bottom: 8),
+-                      expandedCrossAxisAlignment: CrossAxisAlignment.start,
+-                      title: Text(
+-                        'Cuentas de demostración',
+-                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+-                      ),
+-                      children: [
+-                        Text(
+-                          'Adulto: 3001112233 / PIN 1234\n'
+-                          'Voluntario: voluntario@vita.app / Voluntario1\n'
+-                          'Coordinación: coordinacion@vita.app / CoordVita1',
+-                          style: TextStyle(fontSize: 15, height: 1.6, color: VitaColors.muted),
+-                        ),
+-                      ],
+-                    ),
+-                  ),
+                 ],
+               ),
+             ),
+diff --git a/lib/ui/features/volunteer/volunteer_home_view.dart b/lib/ui/features/volunteer/volunteer_home_view.dart
+index 08a9de8..004a249 100644
+--- a/lib/ui/features/volunteer/volunteer_home_view.dart
++++ b/lib/ui/features/volunteer/volunteer_home_view.dart
+@@ -218,7 +218,12 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
+           const SizedBox(height: 16),
+           const Text('Unirse con código (otro celular)'),
+           const SizedBox(height: 8),
+-          TextField(controller: _code, keyboardType: TextInputType.number, decoration: const InputDecoration(labelText: 'Código de 6 dígitos')),
++          TextField(
++            controller: _code,
++            maxLength: 6,
++            keyboardType: TextInputType.number,
++            decoration: const InputDecoration(labelText: 'Código de 6 dígitos'),
++          ),
+           const SizedBox(height: 8),
+           VitaPrimaryButton(label: 'Unirme a la sala', color: VitaColors.secondary, onPressed: _joinCode),
+           const SizedBox(height: 16),

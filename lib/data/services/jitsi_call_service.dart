@@ -19,6 +19,12 @@ class JitsiCallService {
   /// Margen antes de colgar sola cuando la otra persona se va (por si se le cae el internet un instante).
   static const Duration _aloneGrace = Duration(seconds: 5);
 
+  /// Cuelga la videollamada en curso (por ejemplo, cuando la otra persona ya terminó la llamada).
+  void hangUp() {
+    _stopTimers();
+    _client.hangUp();
+  }
+
   final Set<String> _remote = {};
   Timer? _aloneTimer;
   Timer? _breakTimer;
