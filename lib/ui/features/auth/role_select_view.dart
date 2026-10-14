@@ -26,15 +26,10 @@ class RoleSelectView extends StatelessWidget {
               child: Column(
                 children: [
                   Container(
-                    width: 64,
-                    height: 64,
+                    width: 96,
+                    height: 96,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(22),
-                      gradient: const LinearGradient(
-                        begin: Alignment.topLeft,
-                        end: Alignment.bottomRight,
-                        colors: [VitaColors.primaryLight, VitaColors.secondaryLight],
-                      ),
+                      borderRadius: BorderRadius.circular(28),
                       boxShadow: [
                         BoxShadow(
                           color: VitaColors.primaryLight.withValues(alpha: 0.35),
@@ -43,7 +38,10 @@ class RoleSelectView extends StatelessWidget {
                         ),
                       ],
                     ),
-                    child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 34),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(28),
+                      child: Image.asset('assets/icon/logo.png', fit: BoxFit.cover, cacheWidth: 288),
+                    ),
                   ),
                   const SizedBox(height: 8),
                   const Text(
