@@ -19,6 +19,7 @@ import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/data/services/secret_hasher.dart';
 import 'package:vita_app/domain/legal_versions.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/domain/volunteer_matching.dart';
 import 'package:vita_app/firebase_options.dart';
 
 /// Colección sincronizada con Firestore (solicitudes, reportes, alertas, etc.).
@@ -99,7 +100,7 @@ class VitaRepository extends ChangeNotifier {
   static const lockDuration = Duration(minutes: 15);
   static const _writeTimeout = Duration(seconds: 8);
   /// Un voluntario sin "latido" en este tiempo se considera desconectado.
-  static const presenceWindow = Duration(seconds: 90);
+  static const presenceWindow = kPresenceWindow;
 
   /// El prototipo permite llamadas fuera de horario para demos académicas.
   static const demoBypassSchedule = true;
@@ -856,13 +857,10 @@ class VitaRepository extends ChangeNotifier {
   /// Hora de Colombia (UTC-5, sin horario de verano), sin importar la zona horaria del celular.
   /// Los horarios de atención y las franjas de los voluntarios se miden con esta hora; si no,
   /// un emulador en UTC o un celular mal configurado dan "fuera de tu horario" a deshoras.
-  DateTime _colombiaNow() => _now().toUtc().subtract(const Duration(hours: 5));
+  DateTime _colombiaNow() => colombiaTime(_now());
 
   bool isVolunteerInShift(String volunteerId) {
-    final now = _colombiaNow();
-    final slots = slotsFor(volunteerId);
-    if (slots.isEmpty) return true;
-    return slots.any((s) => s.weekday == now.weekday && now.hour >= s.startHour && now.hour < s.endHour);
+    return isInShift(slotsFor(volunteerId), _colombiaNow());
   }
 
   Future<void> addSlot({required int weekday, required int startHour, required int endHour}) async {
@@ -941,31 +939,17 @@ class VitaRepository extends ChangeNotifier {
   }
 
   List<VitaUser> _availableVolunteers({String? excludeId, String? ignoreRequestId}) {
-    final list = _users.where((u) {
-      if (u.role != UserRole.volunteer) return false;
-      if (u.status != AccountStatus.active) return false;
-      if (!u.available) return false;
-      // Disponible en el papel no basta: tiene que haber avisado hace poco que sigue conectado.
-      final seen = u.lastSeenAt;
-      if (seen == null || _now().difference(seen) > presenceWindow) return false;
-      if (excludeId != null && u.id == excludeId) return false;
-      if (!isVolunteerInShift(u.id)) return false;
-      // Se usan las solicitudes normalizadas: una solicitud vieja que quedó "ringing" o
-      // "connected" no debe dejar al voluntario como ocupado para siempre.
-      final busy = requests.any(
-        (r) =>
-            r.id != ignoreRequestId &&
-            r.volunteerId == u.id &&
-            (r.status == CallRequestStatus.ringing || r.status == CallRequestStatus.connected),
-      );
-      return !busy;
-    }).toList()
-      ..sort((a, b) {
-        final aTime = a.lastCallAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        final bTime = b.lastCallAt ?? DateTime.fromMillisecondsSinceEpoch(0);
-        return aTime.compareTo(bTime);
-      });
-    return list;
+    // Se usan las solicitudes normalizadas: una solicitud vieja que quedó "ringing" o "connected"
+    // no debe dejar al voluntario como ocupado para siempre.
+    return selectVolunteers(
+      users: _users,
+      requests: requests,
+      slots: _slots,
+      now: _now(),
+      excludeId: excludeId,
+      ignoreRequestId: ignoreRequestId,
+      presenceWindow: presenceWindow,
+    );
   }
 
   /// Voluntario de la llamada cortada, al que se intenta llamar primero (RF35).
@@ -987,22 +971,21 @@ class VitaRepository extends ChangeNotifier {
     final index = _requests.indexWhere((r) => r.id == requestId);
     if (index < 0) throw Exception('Solicitud no encontrada.');
     final request = _requests[index];
-    var candidates = _availableVolunteers(excludeId: request.volunteerId, ignoreRequestId: request.id);
-    // Si el único voluntario disponible es el mismo que ya estaba sonando, se le vuelve a avisar
-    // (en vez de dar la solicitud por vencida mientras sigue disponible).
-    if (candidates.isEmpty) candidates = _availableVolunteers(ignoreRequestId: request.id);
-    // RF35: al "llamar de nuevo" se intenta primero con el mismo voluntario de la llamada cortada.
-    final preferred = _preferredVolunteerId;
-    if (preferred != null) {
-      final i = candidates.indexWhere((u) => u.id == preferred);
-      if (i > 0) candidates.insert(0, candidates.removeAt(i));
-    }
-    if (candidates.isEmpty) {
+    final volunteer = chooseVolunteer(
+      users: _users,
+      requests: requests,
+      slots: _slots,
+      now: _now(),
+      requestId: request.id,
+      previousVolunteerId: request.volunteerId,
+      preferredId: _preferredVolunteerId,
+      presenceWindow: presenceWindow,
+    );
+    if (volunteer == null) {
       _requests[index] = request.copyWith(status: CallRequestStatus.expired);
       await _commit();
       return _requests[index];
     }
-    final volunteer = candidates.first;
     _requests[index] = request.copyWith(
       volunteerId: volunteer.id,
       status: CallRequestStatus.ringing,
