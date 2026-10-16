@@ -21,6 +21,20 @@ class _VolunteerLoginViewState extends State<VolunteerLoginView> {
 
   bool get _canSubmit => !_loading && _email.text.contains('@') && _password.text.length >= 6;
 
+  Future<void> _resend() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    final message = await VitaScope.of(context).resendVerificationEmail(
+      email: _email.text.trim(),
+      password: _password.text,
+    );
+    if (!mounted) return;
+    setState(() => _loading = false);
+    await showVitaMessage(context, message);
+  }
+
   @override
   void dispose() {
     _email.dispose();
@@ -121,6 +135,11 @@ class _VolunteerLoginViewState extends State<VolunteerLoginView> {
                         MaterialPageRoute(builder: (_) => const VolunteerRecoverView()),
                       ),
                       child: const Text('¿Olvidaste tu contraseña?'),
+                    ),
+                    TextButton(
+                      style: TextButton.styleFrom(foregroundColor: VitaColors.secondary),
+                      onPressed: _canSubmit ? _resend : null,
+                      child: const Text('Reenviar correo de verificación'),
                     ),
                   ],
                 ),

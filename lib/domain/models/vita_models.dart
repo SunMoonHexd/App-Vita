@@ -31,6 +31,7 @@ class VitaUser {
     this.lastCallAt,
     this.lastSeenAt,
     this.createdAt,
+    this.emailVerified = false,
   });
 
   final String id;
@@ -57,6 +58,8 @@ class VitaUser {
   /// Último "latido" del voluntario: sirve para saber si de verdad tiene la app abierta.
   final DateTime? lastSeenAt;
   final DateTime? createdAt;
+  /// RF3: el voluntario confirmó que el correo es suyo (lo certifica Firebase Auth).
+  final bool emailVerified;
 
   VitaUser copyWith({
     AccountStatus? status,
@@ -76,6 +79,7 @@ class VitaUser {
     DateTime? lockedUntil,
     DateTime? lastCallAt,
     DateTime? lastSeenAt,
+    bool? emailVerified,
     bool clearLock = false,
   }) {
     return VitaUser(
@@ -101,6 +105,7 @@ class VitaUser {
       lockedUntil: clearLock ? null : (lockedUntil ?? this.lockedUntil),
       lastCallAt: lastCallAt ?? this.lastCallAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
+      emailVerified: emailVerified ?? this.emailVerified,
       createdAt: createdAt,
     );
   }
@@ -128,6 +133,7 @@ class VitaUser {
         'lockedUntil': vitaIsoN(lockedUntil),
         'lastCallAt': vitaIsoN(lastCallAt),
         'lastSeenAt': vitaIsoN(lastSeenAt),
+        'emailVerified': emailVerified,
         'createdAt': vitaIsoN(createdAt),
       };
 
@@ -155,6 +161,7 @@ class VitaUser {
       lockedUntil: json['lockedUntil'] == null ? null : DateTime.parse(json['lockedUntil'] as String),
       lastCallAt: json['lastCallAt'] == null ? null : DateTime.parse(json['lastCallAt'] as String),
       lastSeenAt: json['lastSeenAt'] == null ? null : DateTime.parse(json['lastSeenAt'] as String),
+      emailVerified: json['emailVerified'] as bool? ?? false,
       createdAt: json['createdAt'] == null ? null : DateTime.parse(json['createdAt'] as String),
     );
   }

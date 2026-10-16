@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/domain/volunteer_verification.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 
@@ -41,10 +42,15 @@ class CoordinatorHomeView extends StatelessWidget {
           for (final user in pending)
             ListTile(
               title: Text(user.displayName),
-              subtitle: Text('${user.email} · ${user.documentId}'),
+              subtitle: Text(_pendingDetails(user)),
+              isThreeLine: true,
               trailing: Wrap(
                 children: [
-                  IconButton(icon: const Icon(Icons.check, color: VitaColors.secondary), onPressed: () => repo.approveVolunteer(user.id, approve: true)),
+                  // RF3: solo se puede aprobar con el correo verificado.
+                  IconButton(
+                    icon: Icon(Icons.check, color: canApproveVolunteer(user) ? VitaColors.secondary : Colors.grey),
+                    onPressed: canApproveVolunteer(user) ? () => repo.approveVolunteer(user.id, approve: true) : null,
+                  ),
                   IconButton(icon: const Icon(Icons.close, color: VitaColors.alert), onPressed: () => repo.approveVolunteer(user.id, approve: false)),
                 ],
               ),
@@ -211,4 +217,14 @@ class _AlertCard extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Datos que coordinación revisa de un voluntario pendiente (RF3).
+String _pendingDetails(VitaUser user) {
+  final birth = user.birthDate;
+  final birthText = birth == null
+      ? 'Sin fecha de nacimiento'
+      : 'Nació el ${birth.day}/${birth.month}/${birth.year} (${ageOn(birth, DateTime.now())} años)';
+  final emailText = user.emailVerified ? 'Correo verificado' : 'Correo sin verificar: no se puede aprobar todavía';
+  return '${user.email} · ${user.documentId}\n$birthText\n$emailText';
 }

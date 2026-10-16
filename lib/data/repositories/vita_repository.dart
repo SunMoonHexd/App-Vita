@@ -20,6 +20,7 @@ import 'package:vita_app/data/services/secret_hasher.dart';
 import 'package:vita_app/domain/legal_versions.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/domain/volunteer_matching.dart';
+import 'package:vita_app/domain/volunteer_verification.dart';
 import 'package:vita_app/firebase_options.dart';
 
 /// Colección sincronizada con Firestore (solicitudes, reportes, alertas, etc.).
@@ -191,10 +192,17 @@ class VitaRepository extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   Future<void> bootstrap() async {
-    final fbUser = _auth.currentUser;
-    if (fbUser != null) {
+    String? uid;
+    try {
+      uid = _auth.currentUser?.uid;
+    } catch (e) {
+      // Si Firebase no está disponible (por ejemplo, en las pruebas) se muestra la pantalla inicial.
+      lastSyncError = e.toString();
+      debugPrint('Firebase no disponible al iniciar: $e');
+    }
+    if (uid != null) {
       try {
-        final user = await _fetchUser(fbUser.uid);
+        final user = await _fetchUser(uid);
         if (user != null && user.status == AccountStatus.active) {
           await _openSession(user);
         } else {
@@ -325,6 +333,12 @@ class VitaRepository extends ChangeNotifier {
         await _auth.signOut();
         return const AuthResult.error('No encontramos esa cuenta para este perfil.');
       }
+      if (user.role == UserRole.volunteer && user.status == AccountStatus.pending) {
+        // RF3: se confirma el correo con Firebase y se le dice en qué paso va.
+        final verified = await _syncEmailVerification(user);
+        await _auth.signOut();
+        return AuthResult.error(volunteerPendingMessage(emailVerified: verified));
+      }
       final gate = _finishLogin(user);
       if (!gate.isOk) {
         await _auth.signOut();
@@ -345,6 +359,55 @@ class VitaRepository extends ChangeNotifier {
     } catch (e) {
       lastSyncError = e.toString();
       return const AuthResult.error('No se pudo conectar. Revisa tu internet e inténtalo de nuevo.');
+    }
+  }
+
+  /// RF3: pregunta a Firebase si el correo ya fue verificado y, si es así, lo deja anotado en el
+  /// perfil para que coordinación lo vea. Las reglas solo aceptan ese dato si el token lo respalda.
+  Future<bool> _syncEmailVerification(VitaUser user) async {
+    try {
+      final fbUser = _auth.currentUser;
+      if (fbUser == null) return false;
+      await fbUser.reload();
+      final verified = _auth.currentUser?.emailVerified ?? false;
+      if (verified && !user.emailVerified) {
+        await _auth.currentUser!.getIdToken(true);
+        await _db
+            .collection('users')
+            .doc(user.id)
+            .set({'emailVerified': true}, SetOptions(merge: true))
+            .timeout(_writeTimeout);
+      }
+      return verified;
+    } catch (e) {
+      lastSyncError = e.toString();
+      return false;
+    }
+  }
+
+  /// RF3: reenvía el correo de verificación (regeneración del enlace). Devuelve el mensaje a mostrar.
+  Future<String> resendVerificationEmail({required String email, required String password}) async {
+    try {
+      final cred = await _auth.signInWithEmailAndPassword(email: email.trim(), password: password);
+      final fbUser = cred.user;
+      final user = fbUser == null ? null : await _fetchUser(fbUser.uid);
+      if (fbUser == null || user == null || user.role != UserRole.volunteer) {
+        await _auth.signOut();
+        return 'No encontramos una cuenta de voluntario con esos datos.';
+      }
+      await fbUser.reload();
+      if (_auth.currentUser?.emailVerified ?? false) {
+        await _auth.signOut();
+        return volunteerPendingMessage(emailVerified: true);
+      }
+      await fbUser.sendEmailVerification();
+      await _auth.signOut();
+      return 'Te enviamos un nuevo correo de verificación. Revisa también la carpeta de spam.';
+    } on FirebaseAuthException catch (e) {
+      if (e.code == 'too-many-requests') return 'Espera unos minutos antes de pedir otro correo.';
+      return _authMessage(e, wrong: 'Correo o contraseña incorrectos.');
+    } catch (_) {
+      return 'No se pudo conectar. Revisa tu internet e inténtalo de nuevo.';
     }
   }
 
@@ -565,6 +628,13 @@ class VitaRepository extends ChangeNotifier {
         await cred.user!.delete();
       } catch (_) {}
       return const AuthResult.error('No se pudo guardar tu registro. Revisa tu internet e inténtalo de nuevo.');
+    }
+    // RF3: Firebase envía un correo con un enlace para verificar la dirección.
+    try {
+      await cred.user!.sendEmailVerification();
+    } catch (e) {
+      // Si falla, el voluntario puede pedir el reenvío desde la pantalla de ingreso.
+      debugPrint('No se pudo enviar el correo de verificación: $e');
     }
     // El voluntario queda pendiente: no inicia sesión hasta que coordinación lo apruebe.
     await _auth.signOut();
@@ -1233,6 +1303,8 @@ class VitaRepository extends ChangeNotifier {
   Future<void> approveVolunteer(String userId, {required bool approve}) async {
     final i = _indexOf(userId);
     if (i < 0) return;
+    // RF3: no se aprueba a quien no haya verificado su correo. Rechazar siempre se puede.
+    if (approve && !canApproveVolunteer(_users[i])) return;
     _users[i] = _users[i].copyWith(status: approve ? AccountStatus.active : AccountStatus.blocked);
     await _commit();
   }
@@ -1301,6 +1373,7 @@ class VitaRepository extends ChangeNotifier {
         'onboardingDone': u.onboardingDone,
         'lastCallAt': u.lastCallAt == null ? null : vitaIso(u.lastCallAt!),
         'lastSeenAt': u.lastSeenAt == null ? null : vitaIso(u.lastSeenAt!),
+        'emailVerified': u.emailVerified,
         'createdAt': u.createdAt == null ? null : vitaIso(u.createdAt!),
       };
 

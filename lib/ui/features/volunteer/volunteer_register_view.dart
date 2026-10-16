@@ -54,7 +54,7 @@ class _VolunteerRegisterViewState extends State<VolunteerRegisterView> {
       setState(() => _error = result.error);
       return;
     }
-    await showVitaMessage(context, 'Cuenta creada. Queda pendiente de verificación por coordinación.');
+    await showVitaMessage(context, 'Cuenta creada. Te enviamos un correo para verificar tu dirección: toca el enlace. Después, coordinación revisará tu solicitud.');
     if (mounted) Navigator.pop(context);
   }
 

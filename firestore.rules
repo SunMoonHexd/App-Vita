@@ -33,13 +33,22 @@ service cloud.firestore {
       allow create: if signedIn() && uid() == userId
         && request.resource.data.role in ['elderly', 'volunteer']
         && request.resource.data.status ==
-           (request.resource.data.role == 'volunteer' ? 'pending' : 'active');
+           (request.resource.data.role == 'volunteer' ? 'pending' : 'active')
+        && request.resource.data.get('emailVerified', false) == false;
       allow update: if signedIn() && (
-        isCoordinator()
+        // RF3: coordinación no puede activar a un voluntario pendiente si su correo no está verificado.
+        (isCoordinator()
+          && (!(resource.data.role == 'volunteer' && resource.data.status == 'pending'
+                && request.resource.data.status == 'active')
+              || resource.data.get('emailVerified', false) == true))
         || (uid() == userId
             && request.resource.data.role == resource.data.role
             && (request.resource.data.status == resource.data.status
-                || request.resource.data.status == 'deleted'))
+                || request.resource.data.status == 'deleted')
+            // RF3: solo se puede marcar el correo como verificado si Firebase lo certifica.
+            && (request.resource.data.get('emailVerified', false) == resource.data.get('emailVerified', false)
+                || (request.resource.data.get('emailVerified', false) == true
+                    && request.auth.token.email_verified == true)))
         // Al terminar una llamada se actualiza al voluntario (disponibilidad y última llamada).
         || (resource.data.role == 'volunteer' && changedOnly(['available', 'lastCallAt']))
       );
