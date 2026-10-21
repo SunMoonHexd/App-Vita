@@ -75,6 +75,150 @@ class VitaPrimaryButton extends StatelessWidget {
   }
 }
 
+/// Botón de segundo nivel: fondo blanco y borde, para acciones como "Cancelar" o "Ayuda"
+/// que no deben competir con el botón principal.
+class VitaSecondaryButton extends StatelessWidget {
+  const VitaSecondaryButton({
+    super.key,
+    required this.label,
+    required this.onPressed,
+    this.icon,
+    this.color = VitaColors.ink,
+    this.height = 56,
+  });
+
+  final String label;
+  final VoidCallback? onPressed;
+  final IconData? icon;
+  final Color color;
+  final double height;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: height,
+      width: double.infinity,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: color,
+          backgroundColor: Colors.white,
+          side: const BorderSide(color: VitaColors.border, width: 2),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(VitaRadius.md)),
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          textStyle: const TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w800),
+        ),
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            if (icon != null) ...[
+              Icon(icon, size: 24),
+              const SizedBox(width: 8),
+            ],
+            Flexible(child: Text(label, textAlign: TextAlign.center)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Cabecera grande con degradado, esquinas inferiores redondeadas y círculos decorativos.
+/// Se extiende bajo la barra de estado, así que la pantalla no debe envolverla en `SafeArea`.
+/// El texto va en blanco; `child` se muestra debajo (chips de estado, por ejemplo).
+class VitaHeroHeader extends StatelessWidget {
+  const VitaHeroHeader({
+    super.key,
+    required this.title,
+    this.eyebrow,
+    this.trailing,
+    this.child,
+    this.colors = VitaGradients.heroTeal,
+  });
+
+  final String title;
+  final String? eyebrow;
+  final Widget? trailing;
+  final Widget? child;
+  final List<Color> colors;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(36)),
+      child: Container(
+        width: double.infinity,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
+        ),
+        child: Stack(
+          children: [
+            Positioned(right: -40, top: -30, child: _HeroBubble(size: 170, alpha: 0.10)),
+            Positioned(left: -60, bottom: -70, child: _HeroBubble(size: 190, alpha: 0.08)),
+            Padding(
+              padding: EdgeInsets.fromLTRB(VitaSpace.xxl, top + VitaSpace.lg, VitaSpace.xxl, VitaSpace.xxl),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (eyebrow != null)
+                              Text(
+                                eyebrow!,
+                                style: TextStyle(fontSize: 18, color: Colors.white.withValues(alpha: 0.92)),
+                              ),
+                            Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (trailing != null) ...[
+                        const SizedBox(width: VitaSpace.md),
+                        trailing!,
+                      ],
+                    ],
+                  ),
+                  if (child != null) ...[
+                    const SizedBox(height: VitaSpace.lg),
+                    child!,
+                  ],
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeroBubble extends StatelessWidget {
+  const _HeroBubble({required this.size, required this.alpha});
+
+  final double size;
+  final double alpha;
+
+  @override
+  Widget build(BuildContext context) {
+    return IgnorePointer(
+      child: Container(
+        width: size,
+        height: size,
+        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: alpha)),
+      ),
+    );
+  }
+}
+
 class VitaErrorText extends StatelessWidget {
   const VitaErrorText(this.message, {super.key});
 

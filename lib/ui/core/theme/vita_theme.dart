@@ -12,6 +12,7 @@ class VitaColors {
   static const Color primaryDark = Color(0xFF0E6B60); // "relieve" del botón principal
   static const Color secondary = Color(0xFF3F6DB3); // azul: voluntarios
   static const Color secondaryLight = Color(0xFF5E8CD2);
+  static const Color secondaryDark = Color(0xFF2E5496); // extremo oscuro del degradado azul
   static const Color slate = Color(0xFF35506B); // azul grisáceo: acciones de registro
 
   // --- Texto y superficies ---
@@ -42,6 +43,11 @@ class VitaGradients {
   /// Colores del perfil adulto mayor (verde azulado) y voluntario (azul), claro al final.
   static const List<Color> tealColors = [VitaColors.primary, VitaColors.primaryLight];
   static const List<Color> blueColors = [VitaColors.secondary, VitaColors.secondaryLight];
+
+  /// Degradados de las cabeceras grandes. Terminan en tonos oscuros para que el texto blanco
+  /// se lea bien (contraste suficiente) de punta a punta.
+  static const List<Color> heroTeal = [VitaColors.primary, VitaColors.primaryDark];
+  static const List<Color> heroBlue = [VitaColors.secondary, VitaColors.secondaryDark];
 
   /// Degradado principal de los botones y tarjetas de acción.
   static LinearGradient primary({
