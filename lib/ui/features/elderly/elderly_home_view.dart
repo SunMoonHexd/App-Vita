@@ -43,33 +43,19 @@ class ElderlyHomeView extends StatelessWidget {
         bottom: false,
         child: Column(
           children: [
-            Container(
-              color: Colors.white,
-              padding: const EdgeInsets.fromLTRB(24, 14, 24, 14),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('${_greeting()},', style: const TextStyle(fontSize: 17, color: VitaColors.muted)),
-                        Text(
-                          '$firstName 👋',
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(fontSize: 32, fontWeight: FontWeight.w900),
-                        ),
-                      ],
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: () => _open(context, const ElderlyProfileView()),
-                    child: VitaAvatar(name: user.displayName, size: 54),
-                  ),
-                ],
+            VitaHeader(
+              eyebrow: '${_greeting()},',
+              title: '$firstName 👋',
+              titleSize: 32,
+              trailing: Semantics(
+                button: true,
+                label: 'Mi perfil',
+                child: GestureDetector(
+                  onTap: () => _open(context, const ElderlyProfileView()),
+                  child: VitaAvatar(name: user.displayName, size: 54),
+                ),
               ),
             ),
-            const Divider(height: 1),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(22, 22, 22, 24),
@@ -93,16 +79,32 @@ class ElderlyHomeView extends StatelessWidget {
                   _TalkButton(onTap: () => _open(context, const ElderlySearchingView())),
                   const SizedBox(height: 30),
                   const _TipBox(),
+                  const SizedBox(height: VitaSpace.lg),
+                  // "Salir" ya no vive en la barra inferior, para no confundirlo con la navegación.
+                  Center(
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: VitaColors.muted),
+                      onPressed: () => confirmLogout(context),
+                      icon: const Icon(Icons.logout_rounded),
+                      label: const Text('Cerrar sesión'),
+                    ),
+                  ),
                 ],
               ),
             ),
           ],
         ),
       ),
-      bottomNavigationBar: _BottomBar(
-        onProfile: () => _open(context, const ElderlyProfileView()),
-        onHelp: () => _open(context, const ElderlyHelpView()),
-        onLogout: () => confirmLogout(context),
+      bottomNavigationBar: VitaNavBar(
+        items: const [
+          VitaNavItem(icon: Icons.home_outlined, selectedIcon: Icons.home_rounded, label: 'Inicio'),
+          VitaNavItem(icon: Icons.person_outline_rounded, selectedIcon: Icons.person_rounded, label: 'Mi perfil'),
+          VitaNavItem(icon: Icons.help_outline_rounded, selectedIcon: Icons.help_rounded, label: 'Ayuda'),
+        ],
+        onSelected: (index) {
+          if (index == 1) _open(context, const ElderlyProfileView());
+          if (index == 2) _open(context, const ElderlyHelpView());
+        },
       ),
     );
   }
@@ -123,7 +125,7 @@ class _TalkButton extends StatelessWidget {
         decoration: BoxDecoration(
           borderRadius: radius,
           boxShadow: [
-            const BoxShadow(color: Color(0xFF0E6B60), offset: Offset(0, 7)),
+            const BoxShadow(color: VitaColors.primaryDark, offset: Offset(0, 7)),
             BoxShadow(
               color: VitaColors.primaryLight.withValues(alpha: 0.35),
               blurRadius: 32,
@@ -136,12 +138,8 @@ class _TalkButton extends StatelessWidget {
           borderRadius: radius,
           clipBehavior: Clip.antiAlias,
           child: Ink(
-            decoration: const BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [Color(0xFF1FA596), Color(0xFF14877A)],
-              ),
+            decoration: BoxDecoration(
+              gradient: VitaGradients.primary(begin: Alignment.topCenter, end: Alignment.bottomCenter),
             ),
             child: InkWell(
               onTap: onTap,
@@ -192,13 +190,10 @@ class _TipBox extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: const Color(0xFFE6EEFA),
-        borderRadius: BorderRadius.circular(22),
-      ),
-      child: const Row(
+    return const VitaCard(
+      tone: VitaTone.info,
+      padding: EdgeInsets.all(18),
+      child: Row(
         children: [
           Text('💡', style: TextStyle(fontSize: 30)),
           SizedBox(width: 14),
@@ -209,76 +204,6 @@ class _TipBox extends StatelessWidget {
             ),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _BottomBar extends StatelessWidget {
-  const _BottomBar({required this.onProfile, required this.onHelp, required this.onLogout});
-
-  final VoidCallback onProfile;
-  final VoidCallback onHelp;
-  final VoidCallback onLogout;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: VitaColors.border)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Row(
-          children: [
-            _NavItem(emoji: '🏠', label: 'Inicio', selected: true, onTap: () {}),
-            _NavItem(emoji: '👤', label: 'Mi perfil', onTap: onProfile),
-            _NavItem(emoji: '❓', label: 'Ayuda', onTap: onHelp),
-            _NavItem(emoji: '🚪', label: 'Salir', onTap: onLogout),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  const _NavItem({required this.emoji, required this.label, required this.onTap, this.selected = false});
-
-  final String emoji;
-  final String label;
-  final VoidCallback onTap;
-  final bool selected;
-
-  @override
-  Widget build(BuildContext context) {
-    return Expanded(
-      child: Semantics(
-        button: true,
-        selected: selected,
-        label: label,
-        child: InkWell(
-          onTap: onTap,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(emoji, style: const TextStyle(fontSize: 26)),
-                const SizedBox(height: 2),
-                Text(
-                  label,
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w800,
-                    color: selected ? VitaColors.primary : VitaColors.ink,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

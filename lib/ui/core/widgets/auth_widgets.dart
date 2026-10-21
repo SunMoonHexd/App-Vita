@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
+import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 
 /// Botón circular para volver a la pantalla anterior.
 class VitaBackButton extends StatelessWidget {
@@ -45,11 +46,7 @@ class VitaLogoHeader extends StatelessWidget {
           height: 64,
           decoration: BoxDecoration(
             borderRadius: BorderRadius.circular(22),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [VitaColors.primaryLight, VitaColors.secondaryLight],
-            ),
+            gradient: VitaGradients.brand,
             boxShadow: [
               BoxShadow(
                 color: VitaColors.primaryLight.withValues(alpha: 0.35),
@@ -119,34 +116,19 @@ class _VitaConnectionPillState extends State<VitaConnectionPill> {
 
   @override
   Widget build(BuildContext context) {
-    final Color bg;
-    final Color fg;
+    final VitaTone tone;
     final String text;
     if (_online == null) {
-      bg = const Color(0xFFEEF1F3);
-      fg = VitaColors.muted;
+      tone = VitaTone.neutral;
       text = 'Comprobando conexión…';
     } else if (_online!) {
-      bg = const Color(0xFFDDF3E6);
-      fg = const Color(0xFF1E6B3F);
+      tone = VitaTone.success;
       text = 'Conexión activa';
     } else {
-      bg = const Color(0xFFFFF0D6);
-      fg = const Color(0xFF8A5300);
+      tone = VitaTone.warning;
       text = 'Sin conexión a internet';
     }
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 7),
-      decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(20)),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(width: 9, height: 9, decoration: BoxDecoration(color: fg, shape: BoxShape.circle)),
-          const SizedBox(width: 8),
-          Text(text, style: TextStyle(color: fg, fontSize: 15, fontWeight: FontWeight.w800)),
-        ],
-      ),
-    );
+    return VitaPill(label: text, tone: tone, dot: true);
   }
 }
 
@@ -185,11 +167,7 @@ class VitaAvatar extends StatelessWidget {
       alignment: Alignment.center,
       decoration: BoxDecoration(
         shape: BoxShape.circle,
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [VitaColors.primaryLight, VitaColors.secondaryLight],
-        ),
+        gradient: VitaGradients.brand,
         boxShadow: [
           BoxShadow(
             color: VitaColors.primaryLight.withValues(alpha: 0.35),
@@ -265,7 +243,7 @@ class VitaKeypad extends StatelessWidget {
 
   Widget _digitKey(String d) {
     return _key(
-      color: const Color(0xFFE0F3EF),
+      color: VitaColors.tint,
       label: d,
       onTap: () => onDigit(d),
       child: Text(d, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
@@ -302,7 +280,7 @@ class VitaKeypad extends StatelessWidget {
               gap,
               Expanded(
                 child: _key(
-                  color: const Color(0xFFFFE1E1),
+                  color: VitaColors.alertBg,
                   label: 'Borrar',
                   onTap: onBackspace,
                   child: const Icon(Icons.backspace_rounded, color: VitaColors.alert, size: 28),

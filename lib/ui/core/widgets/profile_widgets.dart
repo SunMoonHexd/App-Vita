@@ -1,29 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
-/// Tarjeta blanca con borde suave.
-class VitaCard extends StatelessWidget {
-  const VitaCard({super.key, required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: VitaColors.border),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-}
+// La tarjeta `VitaCard` vive ahora en vita_widgets.dart (acepta `child` o `children`).
 
 /// Título pequeño en mayúsculas dentro de una tarjeta.
 class VitaCardTitle extends StatelessWidget {
