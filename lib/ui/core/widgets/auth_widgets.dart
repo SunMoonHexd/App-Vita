@@ -65,6 +65,17 @@ class VitaLogoHeader extends StatelessWidget {
           'VITA',
           style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, letterSpacing: 1, color: VitaColors.ink),
         ),
+        const SizedBox(height: 2),
+        const Text(
+          'Videollamada de Interacción y\nTelecompañía para el Adulto Mayor',
+          textAlign: TextAlign.center,
+          style: TextStyle(
+            fontSize: 11,
+            height: 1.25,
+            fontWeight: FontWeight.w500,
+            color: VitaColors.muted,
+          ),
+        ),
       ],
     );
   }

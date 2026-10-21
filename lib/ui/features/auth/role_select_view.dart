@@ -48,6 +48,17 @@ class RoleSelectView extends StatelessWidget {
                     'VITA',
                     style: TextStyle(fontSize: 44, fontWeight: FontWeight.w900, letterSpacing: 1),
                   ),
+                  const SizedBox(height: 2),
+                  const Text(
+                    'Videollamada de Interacción y\nTelecompañía para el Adulto Mayor',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      height: 1.25,
+                      fontWeight: FontWeight.w500,
+                      color: VitaColors.muted,
+                    ),
+                  ),
                   const SizedBox(height: 18),
                   const Text(
                     '¿Cómo vas a usar VITA?',
