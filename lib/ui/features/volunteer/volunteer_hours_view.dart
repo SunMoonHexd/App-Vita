@@ -55,13 +55,13 @@ class VolunteerHoursView extends StatelessWidget {
             children: [
               const VitaCardTitle('HISTORIAL DE LLAMADAS'),
               if (mine.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, 22),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'Aún no tienes llamadas. Cuando acompañes a alguien, aparecerán aquí.',
-                      style: TextStyle(fontSize: 17, color: VitaColors.muted, height: 1.4),
+                      style: TextStyle(fontSize: 17, color: context.vita.muted, height: 1.4),
                     ),
                   ),
                 )
@@ -94,22 +94,23 @@ class _Total extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final t = VitaTone.info.resolve(context);
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 16),
       decoration: BoxDecoration(
-        color: const Color(0xFFE9F0FB),
+        color: t.bg,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: const Color(0xFFC6D8F3)),
+        border: Border.all(color: t.border),
       ),
       child: Column(
         crossAxisAlignment: wide ? CrossAxisAlignment.start : CrossAxisAlignment.center,
         children: [
-          Text(label, style: const TextStyle(fontSize: 15, color: VitaColors.muted)),
+          Text(label, style: TextStyle(fontSize: 15, color: context.vita.muted)),
           const SizedBox(height: 4),
           Text(
             value,
-            style: const TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: VitaColors.secondary),
+            style: TextStyle(fontSize: 26, fontWeight: FontWeight.w900, color: t.fg),
           ),
         ],
       ),

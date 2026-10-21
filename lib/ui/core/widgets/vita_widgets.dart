@@ -46,6 +46,7 @@ class VitaPrimaryButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bg = color ?? Theme.of(context).colorScheme.primary;
+    final p = context.vita;
     return SizedBox(
       height: height,
       width: double.infinity,
@@ -54,8 +55,8 @@ class VitaPrimaryButton extends StatelessWidget {
         style: ElevatedButton.styleFrom(
           backgroundColor: bg,
           foregroundColor: Colors.white,
-          disabledBackgroundColor: Colors.grey.shade300,
-          disabledForegroundColor: Colors.grey.shade600,
+          disabledBackgroundColor: p.neutralBg,
+          disabledForegroundColor: p.muted,
           elevation: 2,
           shadowColor: bg.withValues(alpha: 0.3),
           padding: const EdgeInsets.symmetric(horizontal: 20),
@@ -83,27 +84,30 @@ class VitaSecondaryButton extends StatelessWidget {
     required this.label,
     required this.onPressed,
     this.icon,
-    this.color = VitaColors.ink,
+    this.color,
     this.height = 56,
   });
 
   final String label;
   final VoidCallback? onPressed;
   final IconData? icon;
-  final Color color;
+
+  /// Color del texto e icono. Si no se indica, usa el color de texto del tema.
+  final Color? color;
   final double height;
 
   @override
   Widget build(BuildContext context) {
+    final p = context.vita;
     return SizedBox(
       height: height,
       width: double.infinity,
       child: OutlinedButton(
         onPressed: onPressed,
         style: OutlinedButton.styleFrom(
-          foregroundColor: color,
-          backgroundColor: Colors.white,
-          side: const BorderSide(color: VitaColors.border, width: 2),
+          foregroundColor: color ?? p.ink,
+          backgroundColor: p.surface,
+          side: BorderSide(color: p.border, width: 2),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(VitaRadius.md)),
           padding: const EdgeInsets.symmetric(horizontal: 12),
           textStyle: const TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w800),
@@ -227,24 +231,25 @@ class VitaErrorText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (message == null || message!.isEmpty) return const SizedBox.shrink();
+    final t = VitaTone.danger.resolve(context);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
-        color: VitaColors.alertBg,
+        color: t.bg,
         borderRadius: BorderRadius.circular(VitaRadius.sm),
-        border: Border.all(color: VitaColors.alertBorder),
+        border: Border.all(color: t.border),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Icon(Icons.error_outline, color: VitaColors.alert),
+          Icon(Icons.error_outline, color: t.fg),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               message!,
-              style: const TextStyle(color: VitaColors.alert, fontSize: 18),
+              style: TextStyle(color: t.fg, fontSize: 18),
             ),
           ),
         ],
@@ -287,12 +292,13 @@ class VitaHeader extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.vita;
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.fromLTRB(VitaSpace.xxl, 14, VitaSpace.xxl, 14),
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(bottom: BorderSide(color: VitaColors.border)),
+      decoration: BoxDecoration(
+        color: p.surface,
+        border: Border(bottom: BorderSide(color: p.border)),
       ),
       child: Row(
         children: [
@@ -300,7 +306,7 @@ class VitaHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (eyebrow != null) Text(eyebrow!, style: const TextStyle(fontSize: 17, color: VitaColors.muted)),
+                if (eyebrow != null) Text(eyebrow!, style: TextStyle(fontSize: 17, color: p.muted)),
                 Text(
                   title,
                   maxLines: 1,
@@ -345,7 +351,8 @@ class VitaCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final colors = tone?.colors;
+    final colors = tone?.resolve(context);
+    final p = context.vita;
     final radius = BorderRadius.circular(VitaRadius.lg);
     final body = child ?? Column(children: children!);
     final content = padding == null ? body : Padding(padding: padding!, child: body);
@@ -353,15 +360,15 @@ class VitaCard extends StatelessWidget {
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: radius,
-        boxShadow: colors == null
+        boxShadow: colors == null && !p.isDark
             ? [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))]
             : null,
       ),
       child: Material(
-        color: colors?.bg ?? Colors.white,
+        color: colors?.bg ?? p.surface,
         shape: RoundedRectangleBorder(
           borderRadius: radius,
-          side: BorderSide(color: colors?.border ?? VitaColors.border),
+          side: BorderSide(color: colors?.border ?? p.border),
         ),
         clipBehavior: Clip.antiAlias,
         child: InkWell(onTap: onTap, child: content),
@@ -389,7 +396,7 @@ class VitaPill extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = tone.colors;
+    final c = tone.resolve(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
       decoration: BoxDecoration(
@@ -434,7 +441,8 @@ class VitaStatTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final c = tone.colors;
+    final c = tone.resolve(context);
+    final p = context.vita;
     return Semantics(
       container: true,
       label: '$label: $value',
@@ -454,13 +462,13 @@ class VitaStatTile extends StatelessWidget {
               height: 44,
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                color: Colors.white.withValues(alpha: 0.7),
+                color: p.surface.withValues(alpha: 0.7),
                 borderRadius: BorderRadius.circular(VitaRadius.sm),
               ),
               child: Icon(icon, color: c.fg, size: 26),
             ),
             const SizedBox(height: 10),
-            Text(label, style: const TextStyle(fontSize: 15, color: VitaColors.muted)),
+            Text(label, style: TextStyle(fontSize: 15, color: p.muted)),
             const SizedBox(height: 2),
             Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: c.fg)),
           ],
@@ -497,7 +505,7 @@ class VitaNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: const BoxDecoration(border: Border(top: BorderSide(color: VitaColors.border))),
+      decoration: BoxDecoration(border: Border(top: BorderSide(color: context.vita.border))),
       child: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: onSelected,

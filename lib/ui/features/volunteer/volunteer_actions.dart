@@ -12,8 +12,6 @@ Future<bool> _confirm(
   final ok = await showDialog<bool>(
     context: context,
     builder: (context) => AlertDialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w800)),
       content: Text(message, style: const TextStyle(fontSize: 18)),
       actions: [
@@ -112,15 +110,13 @@ class _PasswordDialogState extends State<_PasswordDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       title: Text(widget.title, style: const TextStyle(fontWeight: FontWeight.w800)),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           if (widget.subtitle != null) ...[
-            Text(widget.subtitle!, style: const TextStyle(fontSize: 17, color: VitaColors.muted)),
+            Text(widget.subtitle!, style: TextStyle(fontSize: 17, color: context.vita.muted)),
             const SizedBox(height: 14),
           ],
           TextField(
@@ -139,7 +135,7 @@ class _PasswordDialogState extends State<_PasswordDialog> {
           ),
           if (_error != null) ...[
             const SizedBox(height: 10),
-            Text(_error!, style: const TextStyle(color: VitaColors.alert, fontSize: 16)),
+            Text(_error!, style: TextStyle(color: context.vita.dangerTone.fg, fontSize: 16)),
           ],
         ],
       ),

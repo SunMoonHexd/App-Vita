@@ -120,7 +120,11 @@ class _Faces extends StatelessWidget {
             onTap: () => onChanged(face.$1),
             child: Column(
               children: [
-                Icon(face.$2, size: 56, color: value == face.$1 ? VitaColors.secondary : Colors.grey),
+                Icon(
+                  face.$2,
+                  size: 56,
+                  color: value == face.$1 ? context.vita.accentBlue : context.vita.muted,
+                ),
                 Text(face.$3),
               ],
             ),

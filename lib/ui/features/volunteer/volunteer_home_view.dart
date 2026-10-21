@@ -149,7 +149,6 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
     final firstName = shortName(user.displayName, fallback: 'voluntario');
 
     return Scaffold(
-      backgroundColor: VitaColors.bg,
       body: SafeArea(
         bottom: false,
         child: Column(
@@ -166,7 +165,7 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                 label: 'Mi perfil',
                 child: GestureDetector(
                   onTap: () => _open(const VolunteerProfileView()),
-                  child: VitaAvatar(name: user.displayName, size: 54),
+                  child: VitaAvatar(name: user.displayName, size: 54, photoBase64: user.photoBase64),
                 ),
               ),
             ),
@@ -206,7 +205,7 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                                   user.available
                                       ? 'Recibirás solicitudes. Deja esta pantalla abierta.'
                                       : 'No recibirás solicitudes',
-                                  style: const TextStyle(fontSize: 16, color: VitaColors.muted, height: 1.3),
+                                  style: TextStyle(fontSize: 16, color: context.vita.muted, height: 1.3),
                                 ),
                               ],
                             ),
@@ -254,9 +253,9 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Padding(
-                          padding: EdgeInsets.fromLTRB(20, 18, 20, 4),
-                          child: Text('ACCESOS RÁPIDOS', style: VitaText.overline),
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(20, 18, 20, 4),
+                          child: Text('ACCESOS RÁPIDOS', style: VitaText.overline.copyWith(color: context.vita.muted)),
                         ),
                         _QuickRow(emoji: '🗓️', label: 'Mis turnos', onTap: () => _open(const VolunteerScheduleView())),
                         const Divider(height: 1),
@@ -338,7 +337,7 @@ class _QuickRow extends StatelessWidget {
             Text(emoji, style: const TextStyle(fontSize: 24)),
             const SizedBox(width: 16),
             Expanded(child: Text(label, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800))),
-            const Icon(Icons.chevron_right_rounded, color: VitaColors.muted),
+            Icon(Icons.chevron_right_rounded, color: context.vita.muted),
           ],
         ),
       ),
@@ -448,9 +447,9 @@ class _ActiveCallCard extends StatelessWidget {
       width: double.infinity,
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
-        color: VitaColors.tint,
+        color: context.vita.tint,
         borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: VitaColors.primaryLight),
+        border: Border.all(color: context.vita.tintBorder),
       ),
       child: Column(
         children: [
@@ -460,7 +459,7 @@ class _ActiveCallCard extends StatelessWidget {
             alignment: WrapAlignment.center,
             children: [
               TextButton(
-                style: TextButton.styleFrom(foregroundColor: VitaColors.alert),
+                style: TextButton.styleFrom(foregroundColor: context.vita.dangerTone.fg),
                 onPressed: onEmergency,
                 child: const Text('Alerta de emergencia'),
               ),

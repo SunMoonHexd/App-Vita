@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
-import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
+import 'package:vita_app/ui/core/widgets/photo_widgets.dart';
 import 'package:vita_app/ui/features/elderly/elderly_actions.dart';
 import 'package:vita_app/ui/features/elderly/elderly_change_pin_view.dart';
 import 'package:vita_app/ui/features/elderly/elderly_edit_profile_view.dart';
@@ -53,7 +53,7 @@ class ElderlyProfileView extends StatelessWidget {
                       onPressed: () => Navigator.of(context).maybePop(),
                     ),
                   ),
-                  VitaAvatar(name: user.displayName, size: 96),
+                  VitaPhotoAvatar(user: user),
                   const SizedBox(height: 14),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),

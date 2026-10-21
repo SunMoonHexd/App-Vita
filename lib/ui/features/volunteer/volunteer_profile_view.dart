@@ -3,7 +3,9 @@ import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
+import 'package:vita_app/ui/core/widgets/photo_widgets.dart';
 import 'package:vita_app/ui/core/widgets/profile_widgets.dart';
+import 'package:vita_app/ui/core/widgets/theme_widgets.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 import 'package:vita_app/ui/features/shared/legal_text_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_actions.dart';
@@ -39,13 +41,12 @@ class VolunteerProfileView extends StatelessWidget {
         .length;
 
     return Scaffold(
-      backgroundColor: VitaColors.bg,
       body: SafeArea(
         child: ListView(
           padding: EdgeInsets.zero,
           children: [
             Container(
-              color: Colors.white,
+              color: context.vita.surface,
               padding: const EdgeInsets.fromLTRB(8, 4, 8, 22),
               child: Column(
                 children: [
@@ -54,12 +55,12 @@ class VolunteerProfileView extends StatelessWidget {
                     child: IconButton(
                       tooltip: 'Volver',
                       iconSize: 36,
-                      color: VitaColors.secondary,
+                      color: context.vita.accentBlue,
                       icon: const Icon(Icons.chevron_left_rounded),
                       onPressed: () => Navigator.of(context).maybePop(),
                     ),
                   ),
-                  VitaAvatar(name: user.displayName, size: 96),
+                  VitaPhotoAvatar(user: user),
                   const SizedBox(height: 14),
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -70,21 +71,10 @@ class VolunteerProfileView extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 5),
-                    decoration: BoxDecoration(
-                      color: active ? const Color(0xFFE3F5EA) : const Color(0xFFFFF0D6),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: active ? const Color(0xFF8BCFA3) : const Color(0xFFE0A93B)),
-                    ),
-                    child: Text(
-                      active ? '✓ Voluntario verificado' : 'Cuenta ${user.status.name}',
-                      style: TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w800,
-                        color: active ? const Color(0xFF1E6B3F) : const Color(0xFF8A5300),
-                      ),
-                    ),
+                  VitaPill(
+                    label: active ? 'Voluntario verificado' : 'Cuenta ${user.status.name}',
+                    tone: active ? VitaTone.success : VitaTone.warning,
+                    icon: active ? Icons.verified_rounded : null,
                   ),
                 ],
               ),
@@ -121,6 +111,8 @@ class VolunteerProfileView extends StatelessWidget {
                       const SizedBox(height: 8),
                     ],
                   ),
+                  const SizedBox(height: 20),
+                  const VitaThemeCard(),
                   const SizedBox(height: 20),
                   VitaCard(
                     children: [
@@ -194,9 +186,9 @@ class _Stat extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 12),
       decoration: BoxDecoration(
-        color: Colors.white,
+        color: context.vita.surface,
         borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: VitaColors.border),
+        border: Border.all(color: context.vita.border),
       ),
       child: Column(
         children: [
@@ -205,13 +197,13 @@ class _Stat extends StatelessWidget {
           Text(
             value,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: VitaColors.secondary),
+            style: TextStyle(fontSize: 24, fontWeight: FontWeight.w900, color: context.vita.accentBlue),
           ),
           const SizedBox(height: 2),
           Text(
             label,
             textAlign: TextAlign.center,
-            style: const TextStyle(fontSize: 14, color: VitaColors.muted),
+            style: TextStyle(fontSize: 14, color: context.vita.muted),
           ),
         ],
       ),

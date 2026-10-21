@@ -17,12 +17,7 @@ class VitaCardTitle extends StatelessWidget {
         alignment: Alignment.centerLeft,
         child: Text(
           text,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1,
-            color: VitaColors.muted,
-          ),
+          style: VitaText.overline.copyWith(color: context.vita.muted),
         ),
       ),
     );
@@ -50,7 +45,7 @@ class VitaDataRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(fontSize: 14, color: VitaColors.muted)),
+                Text(label, style: TextStyle(fontSize: 14, color: context.vita.muted)),
                 const SizedBox(height: 2),
                 Text(value, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.3)),
               ],
@@ -87,11 +82,11 @@ class VitaMenuRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: danger ? VitaColors.alert : VitaColors.ink,
+                  color: danger ? context.vita.dangerTone.fg : context.vita.ink,
                 ),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: VitaColors.muted),
+            Icon(Icons.chevron_right_rounded, color: context.vita.muted),
           ],
         ),
       ),

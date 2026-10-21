@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
@@ -11,21 +13,22 @@ class VitaBackButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final p = context.vita;
     return Semantics(
       button: true,
       label: 'Volver',
       child: Material(
-        color: Colors.white,
+        color: p.surface,
         shape: const CircleBorder(),
         elevation: 2,
         shadowColor: Colors.black26,
         child: InkWell(
           customBorder: const CircleBorder(),
           onTap: () => Navigator.of(context).maybePop(),
-          child: const SizedBox(
+          child: SizedBox(
             width: 52,
             height: 52,
-            child: Icon(Icons.arrow_back_rounded, color: VitaColors.ink, size: 28),
+            child: Icon(Icons.arrow_back_rounded, color: p.ink, size: 28),
           ),
         ),
       ),
@@ -150,17 +153,60 @@ class VitaFieldLabel extends StatelessWidget {
   }
 }
 
-/// Círculo con la inicial del nombre.
-class VitaAvatar extends StatelessWidget {
-  const VitaAvatar({super.key, required this.name, this.size = 52});
+/// Círculo con la foto de perfil o, si no hay, con la inicial del nombre.
+class VitaAvatar extends StatefulWidget {
+  const VitaAvatar({super.key, required this.name, this.size = 52, this.photoBase64});
 
   final String name;
   final double size;
 
+  /// Foto en base64 (la guarda `VitaUser.photoBase64`). Si es null o no se puede leer, se
+  /// muestra la inicial.
+  final String? photoBase64;
+
+  @override
+  State<VitaAvatar> createState() => _VitaAvatarState();
+}
+
+class _VitaAvatarState extends State<VitaAvatar> {
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _decode();
+  }
+
+  @override
+  void didUpdateWidget(VitaAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.photoBase64 != widget.photoBase64) _decode();
+  }
+
+  // Se decodifica solo cuando cambia la foto, no en cada redibujado.
+  void _decode() {
+    final raw = widget.photoBase64;
+    if (raw == null || raw.isEmpty) {
+      _bytes = null;
+      return;
+    }
+    try {
+      _bytes = base64Decode(raw);
+    } catch (_) {
+      _bytes = null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final trimmed = name.trim();
+    final size = widget.size;
+    final trimmed = widget.name.trim();
     final initial = trimmed.isEmpty ? '?' : trimmed.substring(0, 1).toUpperCase();
+    final letter = Text(
+      initial,
+      style: TextStyle(fontSize: size * 0.44, fontWeight: FontWeight.w900, color: Colors.white),
+    );
+    final bytes = _bytes;
     return Container(
       width: size,
       height: size,
@@ -176,10 +222,19 @@ class VitaAvatar extends StatelessWidget {
           ),
         ],
       ),
-      child: Text(
-        initial,
-        style: TextStyle(fontSize: size * 0.44, fontWeight: FontWeight.w900, color: Colors.white),
-      ),
+      child: bytes == null
+          ? letter
+          : ClipOval(
+              child: Image.memory(
+                bytes,
+                width: size,
+                height: size,
+                fit: BoxFit.cover,
+                gaplessPlayback: true,
+                // Si la imagen está dañada, se vuelve a la inicial en vez de mostrar un error.
+                errorBuilder: (context, error, stackTrace) => letter,
+              ),
+            ),
     );
   }
 }

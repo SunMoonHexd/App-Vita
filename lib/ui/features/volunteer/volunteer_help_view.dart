@@ -40,7 +40,10 @@ class VolunteerHelpView extends StatelessWidget {
           const SizedBox(height: 18),
           Container(
             padding: const EdgeInsets.all(18),
-            decoration: BoxDecoration(color: const Color(0xFFFDECEA), borderRadius: BorderRadius.circular(22)),
+            decoration: BoxDecoration(
+              color: VitaTone.danger.resolve(context).bg,
+              borderRadius: BorderRadius.circular(22),
+            ),
             child: const Text(
               'Si la persona tiene una emergencia médica o de seguridad, activa la alerta de emergencia y llama a la línea 123. '
               'VITA no la reemplaza.',

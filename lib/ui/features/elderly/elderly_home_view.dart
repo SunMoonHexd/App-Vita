@@ -57,7 +57,7 @@ class ElderlyHomeView extends StatelessWidget {
                   child: Container(
                     padding: const EdgeInsets.all(3),
                     decoration: const BoxDecoration(color: Colors.white, shape: BoxShape.circle),
-                    child: VitaAvatar(name: user.displayName, size: 54),
+                    child: VitaAvatar(name: user.displayName, size: 54, photoBase64: user.photoBase64),
                   ),
                 ),
               ),
