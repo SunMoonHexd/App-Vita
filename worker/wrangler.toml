@@ -1,0 +1,14 @@
+name = "vita-livekit"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+FIREBASE_PROJECT_ID = "app-vita-b55c4"
+LIVEKIT_URL = "wss://appvita-ea7c1r0x.livekit.cloud"          # LiveKit Cloud > Settings > Project URL
+S3_ENDPOINT = "https://ggfkwqwddnpsrznspjmq.storage.supabase.co/storage/v1/s3"
+S3_REGION = "us-east-1"                                # región de tu proyecto Supabase, ej. us-east-1
+S3_BUCKET = "recordings"
+
+# Secretos (NO van aquí). Se cargan con:  npx wrangler secret put NOMBRE
+#   LIVEKIT_API_KEY, LIVEKIT_API_SECRET, S3_ACCESS_KEY, S3_SECRET

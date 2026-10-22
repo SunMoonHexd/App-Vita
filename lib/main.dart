@@ -1,7 +1,8 @@
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:vita_app/config/app_navigator.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
-import 'package:vita_app/data/services/jitsi_call_service.dart';
+import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/firebase_options.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
@@ -20,7 +21,7 @@ Future<void> main() async {
 
   final repository = VitaRepository(
     storage: storage,
-    jitsi: JitsiCallService(),
+    jitsi: LiveKitCallService(),
   );
   await repository.bootstrap();
 
@@ -37,8 +38,6 @@ class VitaApp extends StatefulWidget {
 }
 
 class _VitaAppState extends State<VitaApp> {
-  final _navigatorKey = GlobalKey<NavigatorState>();
-
   @override
   void initState() {
     super.initState();
@@ -57,9 +56,9 @@ class _VitaAppState extends State<VitaApp> {
     final notice = widget.repository.accessNotice;
     if (notice == null) return;
     widget.repository.accessNotice = null;
-    _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+    appNavigatorKey.currentState?.popUntil((route) => route.isFirst);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final dialogContext = _navigatorKey.currentContext;
+      final dialogContext = appNavigatorKey.currentContext;
       if (dialogContext == null) return;
       showDialog<void>(
         context: dialogContext,
@@ -77,7 +76,7 @@ class _VitaAppState extends State<VitaApp> {
     return VitaScope(
       repository: widget.repository,
       child: MaterialApp(
-        navigatorKey: _navigatorKey,
+        navigatorKey: appNavigatorKey,
         title: 'App VITA',
         debugShowCheckedModeBanner: false,
         theme: VitaTheme.light,

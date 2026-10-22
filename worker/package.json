@@ -1,0 +1,8 @@
+{
+  "name": "vita-livekit-worker",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "wrangler dev", "deploy": "wrangler deploy" },
+  "dependencies": { "jose": "^5.9.6", "livekit-server-sdk": "^2.13.0" },
+  "devDependencies": { "wrangler": "^4.0.0" }
+}

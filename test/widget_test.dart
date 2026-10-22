@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
-import 'package:vita_app/data/services/jitsi_call_service.dart';
+import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/main.dart';
 
@@ -10,7 +10,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final storage = LocalStorageService();
     await storage.init();
-    final repo = VitaRepository(storage: storage, jitsi: JitsiCallService());
+    final repo = VitaRepository(storage: storage, jitsi: LiveKitCallService());
     await repo.bootstrap();
 
     await tester.pumpWidget(VitaApp(repository: repo));

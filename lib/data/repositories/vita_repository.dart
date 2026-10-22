@@ -14,7 +14,7 @@ import 'package:firebase_auth/firebase_auth.dart'
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/foundation.dart';
 import 'package:uuid/uuid.dart';
-import 'package:vita_app/data/services/jitsi_call_service.dart';
+import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/data/services/secret_hasher.dart';
 import 'package:vita_app/domain/legal_versions.dart';
@@ -44,7 +44,7 @@ class _Sync<T> {
 class VitaRepository extends ChangeNotifier {
   VitaRepository({
     required LocalStorageService storage,
-    required JitsiCallService jitsi,
+    required LiveKitCallService jitsi,
     DateTime Function()? clock,
   })  : _jitsi = jitsi,
         _now = clock ?? DateTime.now {
@@ -85,7 +85,7 @@ class VitaRepository extends ChangeNotifier {
     );
   }
 
-  final JitsiCallService _jitsi;
+  final LiveKitCallService _jitsi;
   final DateTime Function() _now;
   final _uuid = const Uuid();
   final _random = Random();
@@ -136,7 +136,7 @@ class VitaRepository extends ChangeNotifier {
   String? accessNotice;
   bool _closingForAccess = false;
 
-  JitsiCallService get jitsi => _jitsi;
+  LiveKitCallService get jitsi => _jitsi;
 
   VitaUser? get currentUser =>
       _users.where((u) => u.id == _sessionUserId && u.status != AccountStatus.deleted).firstOrNull;
@@ -1209,11 +1209,11 @@ class VitaRepository extends ChangeNotifier {
     }
   }
 
-  /// Llamada de Jitsi que este celular tiene abierta ahora mismo.
+  /// Llamada de LiveKit que este celular tiene abierta ahora mismo.
   String? _callInProgressId;
 
   /// Si la otra persona ya terminó la llamada (se ve en Firestore), se cuelga la de este celular.
-  /// Jitsi solo avisa cuando alguien SE VA; si uno cuelga antes de que el otro llegue a conectarse,
+  /// LiveKit solo avisa cuando alguien SE VA; si uno cuelga antes de que el otro llegue a conectarse,
   /// el que queda se quedaría solo en la sala sin que nada lo saque.
   void _hangUpIfEnded() {
     final id = _callInProgressId;
