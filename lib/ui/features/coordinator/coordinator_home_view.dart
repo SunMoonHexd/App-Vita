@@ -4,6 +4,7 @@ import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/domain/volunteer_verification.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
+import 'package:vita_app/ui/core/widgets/theme_widgets.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 
 class CoordinatorHomeView extends StatelessWidget {
@@ -19,6 +20,12 @@ class CoordinatorHomeView extends StatelessWidget {
       title: 'Panel coordinación',
       actions: [
         IconButton(
+          tooltip: 'Apariencia',
+          icon: const Icon(Icons.brightness_6_rounded),
+          onPressed: () => showVitaThemeSheet(context),
+        ),
+        IconButton(
+          tooltip: 'Cerrar sesión',
           icon: const Icon(Icons.logout),
           onPressed: () async {
             await repo.logout();
@@ -48,10 +55,16 @@ class CoordinatorHomeView extends StatelessWidget {
                 children: [
                   // RF3: solo se puede aprobar con el correo verificado.
                   IconButton(
-                    icon: Icon(Icons.check, color: canApproveVolunteer(user) ? VitaColors.secondary : Colors.grey),
+                    icon: Icon(
+                      Icons.check,
+                      color: canApproveVolunteer(user) ? context.vita.accentBlue : context.vita.muted,
+                    ),
                     onPressed: canApproveVolunteer(user) ? () => repo.approveVolunteer(user.id, approve: true) : null,
                   ),
-                  IconButton(icon: const Icon(Icons.close, color: VitaColors.alert), onPressed: () => repo.approveVolunteer(user.id, approve: false)),
+                  IconButton(
+                    icon: Icon(Icons.close, color: context.vita.dangerTone.fg),
+                    onPressed: () => repo.approveVolunteer(user.id, approve: false),
+                  ),
                 ],
               ),
             ),
@@ -178,7 +191,7 @@ class _AlertCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.emergency, color: VitaColors.alert),
+                Icon(Icons.emergency, color: context.vita.dangerTone.fg),
                 const SizedBox(width: 8),
                 Expanded(child: Text(alert.note ?? 'Alerta', style: const TextStyle(fontWeight: FontWeight.w700))),
               ],

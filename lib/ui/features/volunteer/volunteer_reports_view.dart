@@ -42,13 +42,13 @@ class VolunteerReportsView extends StatelessWidget {
             children: [
               const VitaCardTitle('REPORTES QUE HICE'),
               if (mine.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(20, 8, 20, 22),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 22),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
                       'No has hecho reportes. Si algo en una llamada te parece raro, puedes reportarlo al recibir la solicitud o durante la llamada.',
-                      style: TextStyle(fontSize: 17, color: VitaColors.muted, height: 1.4),
+                      style: TextStyle(fontSize: 17, color: context.vita.muted, height: 1.4),
                     ),
                   ),
                 )

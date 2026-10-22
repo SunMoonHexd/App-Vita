@@ -66,5 +66,9 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSCameraUsageDescription</key>
+	<string>VITA usa la cámara para tu foto de perfil y para las videollamadas.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>VITA necesita acceder a tus fotos para que elijas tu foto de perfil.</string>
 </dict>
 </plist>

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
@@ -194,44 +195,367 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
   @override
   Widget build(BuildContext context) {
     final request = _request;
-    return VitaPage(
-      title: 'Buscando voluntario',
-      child: Column(
-        children: [
-          if (_error != null) ...[
+
+    // Si no se pudo buscar, solo se muestra el aviso y el botón para volver.
+    if (_error != null) {
+      return VitaPage(
+        title: 'Buscando voluntario',
+        child: Column(
+          children: [
             VitaErrorText(_error),
             VitaPrimaryButton(label: 'Volver', onPressed: () => Navigator.pop(context)),
-          ] else ...[
-            const CircularProgressIndicator(),
-            const SizedBox(height: 20),
-            Text(
-              request?.status == CallRequestStatus.connected
-                  ? 'Conectando la videollamada...'
-                  : 'Estamos buscando a alguien para acompañarte.',
-              textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
+          ],
+        ),
+      );
+    }
+
+    // El mensaje y el paso cambian según avanza la solicitud: buscando → encontrado → conectando.
+    final status = request?.status;
+    final connecting = _joining || status == CallRequestStatus.connected;
+    final step = connecting ? 2 : (status == CallRequestStatus.ringing ? 1 : 0);
+    final headline = connecting
+        ? 'Conectando la videollamada…'
+        : status == CallRequestStatus.ringing
+            ? '¡Encontramos un voluntario! Esperando que conteste…'
+            : 'Estamos buscando a alguien para acompañarte…';
+
+    return AnnotatedRegion<SystemUiOverlayStyle>(
+      value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+      child: Scaffold(
+        backgroundColor: VitaColors.bg,
+        body: Column(
+          children: [
+            _SearchHero(headline: headline, step: step),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
+                child: request == null ? const SizedBox.shrink() : _CodeCard(code: request.joinCode),
+              ),
             ),
-            const SizedBox(height: 16),
-            if (request != null) Text('Código para el voluntario: ${request.joinCode}', style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
-            const SizedBox(height: 8),
-            const Text('Si el voluntario está en otro celular, que ingrese este código.'),
-            const Spacer(),
-            VitaPrimaryButton(label: 'Cancelar búsqueda', color: Colors.grey.shade700, onPressed: _cancel),
-            const SizedBox(height: 12),
-            VitaPrimaryButton(label: 'Ayuda', icon: Icons.help, color: VitaColors.secondary, onPressed: _help),
-            const SizedBox(height: 12),
-            VitaPrimaryButton(label: 'Emergencia', icon: Icons.emergency, color: VitaColors.alert, onPressed: _emergency),
-            if (request?.volunteerId != null)
-              TextButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (_) => ReportView(request: request!, reportedId: request.volunteerId!),
+            // Las acciones quedan siempre a la vista, aunque la pantalla sea pequeña.
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(22, 4, 22, 14),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    VitaPrimaryButton(
+                      label: 'Emergencia',
+                      icon: Icons.emergency,
+                      color: VitaColors.alert,
+                      onPressed: _emergency,
+                    ),
+                    const SizedBox(height: VitaSpace.md),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: VitaSecondaryButton(
+                            label: 'Ayuda',
+                            icon: Icons.help_outline_rounded,
+                            onPressed: _help,
+                          ),
+                        ),
+                        const SizedBox(width: VitaSpace.md),
+                        Expanded(
+                          child: VitaSecondaryButton(
+                            label: 'Cancelar',
+                            icon: Icons.close_rounded,
+                            onPressed: _cancel,
+                          ),
+                        ),
+                      ],
+                    ),
+                    if (request?.volunteerId != null)
+                      TextButton(
+                        onPressed: () => Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                            builder: (_) => ReportView(request: request!, reportedId: request.volunteerId!),
+                          ),
+                        ),
+                        child: const Text('Reportar'),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Parte de arriba de la pantalla: radar animado, mensaje de estado y pasos.
+class _SearchHero extends StatelessWidget {
+  const _SearchHero({required this.headline, required this.step});
+
+  final String headline;
+  final int step;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+    return ClipRRect(
+      borderRadius: const BorderRadius.vertical(bottom: Radius.circular(36)),
+      child: Container(
+        width: double.infinity,
+        padding: EdgeInsets.fromLTRB(24, top + 12, 24, 22),
+        decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: VitaGradients.heroTeal,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const _SearchRadar(),
+            const SizedBox(height: VitaSpace.md),
+            Semantics(
+              liveRegion: true,
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 300),
+                child: Text(
+                  headline,
+                  key: ValueKey(headline),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.w800,
+                    height: 1.25,
+                    color: Colors.white,
                   ),
                 ),
-                child: const Text('Reportar'),
               ),
+            ),
+            const SizedBox(height: VitaSpace.lg),
+            _SearchSteps(current: step),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Logo con ondas que se expanden mientras se busca. Con las animaciones desactivadas en el
+/// celular se muestra quieto.
+class _SearchRadar extends StatefulWidget {
+  const _SearchRadar();
+
+  @override
+  State<_SearchRadar> createState() => _SearchRadarState();
+}
+
+class _SearchRadarState extends State<_SearchRadar> with SingleTickerProviderStateMixin {
+  static const double _core = 112;
+  static const double _full = 200;
+
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 2800),
+  );
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (MediaQuery.disableAnimationsOf(context)) {
+      _controller.stop();
+    } else if (!_controller.isAnimating) {
+      _controller.repeat();
+    }
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Widget _ring(double t) {
+    final size = _core + (_full - _core) * t;
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        color: Colors.white.withValues(alpha: 0.16 * (1 - t)),
+        border: Border.all(color: Colors.white.withValues(alpha: 0.55 * (1 - t)), width: 2),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final reduceMotion = MediaQuery.disableAnimationsOf(context);
+    final core = Container(
+      width: _core,
+      height: _core,
+      padding: const EdgeInsets.all(5),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(34),
+        boxShadow: [
+          BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 24, offset: const Offset(0, 8)),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(29),
+        child: Image.asset('assets/icon/logo.png', fit: BoxFit.cover, cacheWidth: 336),
+      ),
+    );
+
+    // Es solo decoración: el estado se lee en el mensaje de abajo.
+    return ExcludeSemantics(
+      child: SizedBox(
+        width: _full,
+        height: _full,
+        child: reduceMotion
+            ? Stack(alignment: Alignment.center, children: [_ring(0.5), core])
+            : AnimatedBuilder(
+                animation: _controller,
+                child: core,
+                builder: (context, child) {
+                  return Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      for (final phase in const [0.0, 0.33, 0.66]) _ring((_controller.value + phase) % 1.0),
+                      child!,
+                    ],
+                  );
+                },
+              ),
+      ),
+    );
+  }
+}
+
+/// Tres pasos: Buscando → Encontrado → Conectando.
+class _SearchSteps extends StatelessWidget {
+  const _SearchSteps({required this.current});
+
+  final int current;
+
+  static const _labels = ['Buscando', 'Encontrado', 'Conectando'];
+
+  Widget _step(int i) {
+    final done = i < current;
+    final active = i == current;
+    return SizedBox(
+      width: 84,
+      child: Column(
+        children: [
+          AnimatedContainer(
+            duration: const Duration(milliseconds: 300),
+            width: 27,
+            height: 27,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: i <= current ? Colors.white : Colors.white.withValues(alpha: 0.25),
+            ),
+            child: done
+                ? const Icon(Icons.check_rounded, size: 19, color: VitaColors.primary)
+                : active
+                    ? Container(
+                        width: 10,
+                        height: 10,
+                        decoration: const BoxDecoration(shape: BoxShape.circle, color: VitaColors.primary),
+                      )
+                    : null,
+          ),
+          const SizedBox(height: 6),
+          Text(
+            _labels[i],
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: active ? FontWeight.w900 : FontWeight.w700,
+              color: Colors.white.withValues(alpha: active ? 1 : 0.82),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+    for (var i = 0; i < _labels.length; i++) {
+      if (i > 0) {
+        children.add(
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.only(top: 12, left: 4, right: 4),
+              child: Container(
+                height: 3,
+                decoration: BoxDecoration(
+                  color: Colors.white.withValues(alpha: i <= current ? 0.9 : 0.3),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+      children.add(_step(i));
+    }
+    return Semantics(
+      container: true,
+      label: 'Paso ${current + 1} de ${_labels.length}: ${_labels[current]}',
+      excludeSemantics: true,
+      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+    );
+  }
+}
+
+/// Código de 6 dígitos para que el voluntario entre desde otro celular, con botón de copiar.
+class _CodeCard extends StatelessWidget {
+  const _CodeCard({required this.code});
+
+  final String code;
+
+  @override
+  Widget build(BuildContext context) {
+    return VitaCard(
+      padding: const EdgeInsets.fromLTRB(20, 16, 12, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('CÓDIGO PARA EL VOLUNTARIO', style: VitaText.overline),
+          const SizedBox(height: VitaSpace.sm),
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  code,
+                  style: const TextStyle(
+                    fontSize: 38,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 6,
+                    color: VitaColors.primary,
+                  ),
+                ),
+              ),
+              IconButton.filledTonal(
+                tooltip: 'Copiar código',
+                iconSize: 28,
+                icon: const Icon(Icons.copy_rounded),
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: code));
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Código copiado')));
+                },
+              ),
+            ],
+          ),
+          const SizedBox(height: VitaSpace.xs),
+          const Text(
+            'Si el voluntario está en otro celular, que ingrese este código.',
+            style: TextStyle(fontSize: 16, height: 1.3, color: VitaColors.muted),
+          ),
         ],
       ),
     );

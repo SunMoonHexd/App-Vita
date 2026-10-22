@@ -889,6 +889,15 @@ class VitaRepository extends ChangeNotifier {
     await _commit();
   }
 
+  /// Guarda la foto de perfil de quien tiene la sesión abierta (o la quita si [photoBase64] es
+  /// null). Va en `private/{uid}`, así que solo la ven esa persona y coordinación.
+  Future<void> setProfilePhoto(String? photoBase64) async {
+    final user = currentUser;
+    if (user == null) return;
+    _replaceUser(user.copyWith(photoBase64: photoBase64, clearPhoto: photoBase64 == null));
+    await _commit();
+  }
+
   Future<void> requestAccountDeletion() async {
     final user = currentUser;
     if (user == null) return;
@@ -1386,6 +1395,7 @@ class VitaRepository extends ChangeNotifier {
         'familyPhone': u.familyPhone,
         'alternateName': u.alternateName,
         'alternatePhone': u.alternatePhone,
+        'photoBase64': u.photoBase64,
       };
 
   Future<void> _commit() async {

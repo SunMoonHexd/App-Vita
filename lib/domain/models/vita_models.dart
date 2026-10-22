@@ -32,6 +32,7 @@ class VitaUser {
     this.lastSeenAt,
     this.createdAt,
     this.emailVerified = false,
+    this.photoBase64,
   });
 
   final String id;
@@ -61,6 +62,10 @@ class VitaUser {
   /// RF3: el voluntario confirmó que el correo es suyo (lo certifica Firebase Auth).
   final bool emailVerified;
 
+  /// Foto de perfil (JPEG reducido, en base64). Es opcional y vive en el documento privado:
+  /// solo la ve la propia persona y coordinación.
+  final String? photoBase64;
+
   VitaUser copyWith({
     AccountStatus? status,
     String? displayName,
@@ -80,6 +85,8 @@ class VitaUser {
     DateTime? lastCallAt,
     DateTime? lastSeenAt,
     bool? emailVerified,
+    String? photoBase64,
+    bool clearPhoto = false,
     bool clearLock = false,
   }) {
     return VitaUser(
@@ -106,6 +113,7 @@ class VitaUser {
       lastCallAt: lastCallAt ?? this.lastCallAt,
       lastSeenAt: lastSeenAt ?? this.lastSeenAt,
       emailVerified: emailVerified ?? this.emailVerified,
+      photoBase64: clearPhoto ? null : (photoBase64 ?? this.photoBase64),
       createdAt: createdAt,
     );
   }
@@ -134,6 +142,7 @@ class VitaUser {
         'lastCallAt': vitaIsoN(lastCallAt),
         'lastSeenAt': vitaIsoN(lastSeenAt),
         'emailVerified': emailVerified,
+        'photoBase64': photoBase64,
         'createdAt': vitaIsoN(createdAt),
       };
 
@@ -162,6 +171,7 @@ class VitaUser {
       lastCallAt: json['lastCallAt'] == null ? null : DateTime.parse(json['lastCallAt'] as String),
       lastSeenAt: json['lastSeenAt'] == null ? null : DateTime.parse(json['lastSeenAt'] as String),
       emailVerified: json['emailVerified'] as bool? ?? false,
+      photoBase64: json['photoBase64'] as String?,
       createdAt: json['createdAt'] == null ? null : DateTime.parse(json['createdAt'] as String),
     );
   }

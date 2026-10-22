@@ -1,29 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
-/// Tarjeta blanca con borde suave.
-class VitaCard extends StatelessWidget {
-  const VitaCard({super.key, required this.children});
-
-  final List<Widget> children;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: VitaColors.border),
-        boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4)),
-        ],
-      ),
-      clipBehavior: Clip.antiAlias,
-      child: Column(children: children),
-    );
-  }
-}
+// La tarjeta `VitaCard` vive ahora en vita_widgets.dart (acepta `child` o `children`).
 
 /// Título pequeño en mayúsculas dentro de una tarjeta.
 class VitaCardTitle extends StatelessWidget {
@@ -39,12 +17,7 @@ class VitaCardTitle extends StatelessWidget {
         alignment: Alignment.centerLeft,
         child: Text(
           text,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w800,
-            letterSpacing: 1,
-            color: VitaColors.muted,
-          ),
+          style: VitaText.overline.copyWith(color: context.vita.muted),
         ),
       ),
     );
@@ -72,7 +45,7 @@ class VitaDataRow extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(fontSize: 14, color: VitaColors.muted)),
+                Text(label, style: TextStyle(fontSize: 14, color: context.vita.muted)),
                 const SizedBox(height: 2),
                 Text(value, style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w600, height: 1.3)),
               ],
@@ -109,11 +82,11 @@ class VitaMenuRow extends StatelessWidget {
                 style: TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.w800,
-                  color: danger ? VitaColors.alert : VitaColors.ink,
+                  color: danger ? context.vita.dangerTone.fg : context.vita.ink,
                 ),
               ),
             ),
-            const Icon(Icons.chevron_right_rounded, color: VitaColors.muted),
+            Icon(Icons.chevron_right_rounded, color: context.vita.muted),
           ],
         ),
       ),
