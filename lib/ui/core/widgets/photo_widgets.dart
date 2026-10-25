@@ -38,7 +38,11 @@ class VitaPhotoAvatar extends StatelessWidget {
             Stack(
               clipBehavior: Clip.none,
               children: [
-                VitaAvatar(name: user.displayName, size: size, photoBase64: user.photoBase64),
+                VitaAvatar(
+                  name: user.displayName,
+                  size: size,
+                  photoBase64: user.photoBase64,
+                ),
                 Positioned(
                   right: -2,
                   bottom: -2,
@@ -50,7 +54,11 @@ class VitaPhotoAvatar extends StatelessWidget {
                       shape: BoxShape.circle,
                       border: Border.all(color: p.surface, width: 3),
                     ),
-                    child: Icon(Icons.photo_camera_rounded, size: size * 0.2, color: Colors.white),
+                    child: Icon(
+                      Icons.photo_camera_rounded,
+                      size: size * 0.2,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
               ],
@@ -58,7 +66,11 @@ class VitaPhotoAvatar extends StatelessWidget {
             const SizedBox(height: VitaSpace.sm),
             Text(
               user.photoBase64 == null ? 'Agregar foto' : 'Cambiar foto',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w800, color: p.accent),
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: p.accent,
+              ),
             ),
           ],
         ),
@@ -85,7 +97,7 @@ Future<void> changeProfilePhoto(BuildContext context) async {
             const Text('Foto de perfil', style: VitaText.title),
             const SizedBox(height: 4),
             Text(
-              'Solo la ves tú y coordinación.',
+              'La ves tú y coordinación; durante una llamada también la verá la otra persona.',
               style: VitaText.caption.copyWith(color: sheetContext.vita.muted),
             ),
             const SizedBox(height: VitaSpace.md),
@@ -121,7 +133,9 @@ Future<void> changeProfilePhoto(BuildContext context) async {
   try {
     // La librería reduce la imagen al elegirla: máximo 400 px de lado y calidad 75.
     final file = await ImagePicker().pickImage(
-      source: action == _PhotoAction.camera ? ImageSource.camera : ImageSource.gallery,
+      source: action == _PhotoAction.camera
+          ? ImageSource.camera
+          : ImageSource.gallery,
       maxWidth: 400,
       maxHeight: 400,
       imageQuality: 75,
@@ -130,12 +144,17 @@ Future<void> changeProfilePhoto(BuildContext context) async {
     if (file == null) return; // cerró el selector sin elegir nada
     final bytes = await file.readAsBytes();
     if (bytes.length > _maxPhotoBytes) {
-      if (context.mounted) await showVitaMessage(context, 'La foto es muy pesada. Prueba con otra.');
+      if (context.mounted)
+        await showVitaMessage(
+          context,
+          'La foto es muy pesada. Prueba con otra.',
+        );
       return;
     }
     await repo.setProfilePhoto(base64Encode(bytes));
     if (context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Foto actualizada')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Foto actualizada')));
     }
   } catch (e) {
     debugPrint('No se pudo cambiar la foto: $e');
@@ -149,7 +168,12 @@ Future<void> changeProfilePhoto(BuildContext context) async {
 }
 
 class _PhotoOption extends StatelessWidget {
-  const _PhotoOption({required this.icon, required this.label, required this.onTap, this.danger = false});
+  const _PhotoOption({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.danger = false,
+  });
 
   final IconData icon;
   final String label;
@@ -169,7 +193,14 @@ class _PhotoOption extends StatelessWidget {
         backgroundColor: danger ? p.dangerTone.bg : p.tint,
         child: Icon(icon, size: 28, color: danger ? p.dangerTone.fg : p.accent),
       ),
-      title: Text(label, style: TextStyle(fontSize: 19, fontWeight: FontWeight.w800, color: color)),
+      title: Text(
+        label,
+        style: TextStyle(
+          fontSize: 19,
+          fontWeight: FontWeight.w800,
+          color: color,
+        ),
+      ),
     );
   }
 }

@@ -230,6 +230,20 @@ class CallRequest {
     );
   }
 
+  /// La misma llamada sin datos personales (F18.7).
+  CallRequest anonymized() => CallRequest(
+      id: id,
+      elderlyId: kAnonymized,
+      roomName: 'anonimizada',
+      joinCode: '000000',
+      status: status,
+      createdAt: createdAt,
+      volunteerId: volunteerId == null ? null : kAnonymized,
+      attempts: attempts,
+      startedAt: startedAt,
+      endedAt: endedAt,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'elderlyId': elderlyId,
@@ -293,6 +307,18 @@ class UserReport {
     );
   }
 
+  /// La misma reporte sin datos personales (F18.7).
+  UserReport anonymized() => UserReport(
+      id: id,
+      reporterId: kAnonymized,
+      reportedId: kAnonymized,
+      callId: callId,
+      reason: reason,
+      status: status,
+      createdAt: createdAt,
+      comment: null,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'reporterId': reporterId,
@@ -318,6 +344,25 @@ class UserReport {
   }
 }
 
+/// Estado del seguimiento de una alerta de emergencia (F8.11).
+enum AlertStatus { open, inProgress, resolved }
+
+/// Resultado de intentar comunicarse con el familiar o con el contacto alternativo (F8.7 y F8.9).
+enum FamilyOutcome { pending, reached, noAnswer }
+
+/// Valor que reemplaza a los datos personales cuando se anonimizan registros vencidos (F18.7).
+const String kAnonymized = 'anonimizado';
+
+T _enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
+  for (final value in values) {
+    if (value.name == name) return value;
+  }
+  return fallback;
+}
+
+DateTime? _dateOrNull(Object? raw) => raw is String ? DateTime.tryParse(raw) : null;
+
+/// Alerta de emergencia y su seguimiento por parte de coordinación (RF11 · F8.7, F8.9 y F8.11).
 class EmergencyAlert {
   const EmergencyAlert({
     required this.id,
@@ -326,14 +371,93 @@ class EmergencyAlert {
     required this.elderlyId,
     required this.createdAt,
     this.note,
+    this.status = AlertStatus.open,
+    this.takenById,
+    this.takenAt,
+    this.familyNotifiedAt,
+    this.familyChannel,
+    this.familyOutcome = FamilyOutcome.pending,
+    this.alternateNotifiedAt,
+    this.alternateOutcome = FamilyOutcome.pending,
+    this.resolvedAt,
+    this.resolvedById,
+    this.resolutionNote,
   });
 
   final String id;
   final String callId;
   final String triggeredById;
   final String elderlyId;
-  final String? note;
   final DateTime createdAt;
+  final String? note;
+  final AlertStatus status;
+  final String? takenById;
+  final DateTime? takenAt;
+  final DateTime? familyNotifiedAt;
+  final String? familyChannel;
+  final FamilyOutcome familyOutcome;
+  final DateTime? alternateNotifiedAt;
+  final FamilyOutcome alternateOutcome;
+  final DateTime? resolvedAt;
+  final String? resolvedById;
+  final String? resolutionNote;
+
+  bool get isAnonymized => elderlyId == kAnonymized;
+
+  EmergencyAlert copyWith({
+    AlertStatus? status,
+    String? takenById,
+    DateTime? takenAt,
+    DateTime? familyNotifiedAt,
+    String? familyChannel,
+    FamilyOutcome? familyOutcome,
+    DateTime? alternateNotifiedAt,
+    FamilyOutcome? alternateOutcome,
+    DateTime? resolvedAt,
+    String? resolvedById,
+    String? resolutionNote,
+  }) {
+    return EmergencyAlert(
+      id: id,
+      callId: callId,
+      triggeredById: triggeredById,
+      elderlyId: elderlyId,
+      createdAt: createdAt,
+      note: note,
+      status: status ?? this.status,
+      takenById: takenById ?? this.takenById,
+      takenAt: takenAt ?? this.takenAt,
+      familyNotifiedAt: familyNotifiedAt ?? this.familyNotifiedAt,
+      familyChannel: familyChannel ?? this.familyChannel,
+      familyOutcome: familyOutcome ?? this.familyOutcome,
+      alternateNotifiedAt: alternateNotifiedAt ?? this.alternateNotifiedAt,
+      alternateOutcome: alternateOutcome ?? this.alternateOutcome,
+      resolvedAt: resolvedAt ?? this.resolvedAt,
+      resolvedById: resolvedById ?? this.resolvedById,
+      resolutionNote: resolutionNote ?? this.resolutionNote,
+    );
+  }
+
+  /// La misma alerta sin datos personales (F18.7): conserva fechas, estado y resultado, para estadísticas.
+  EmergencyAlert anonymized() {
+    return EmergencyAlert(
+      id: id,
+      callId: callId,
+      triggeredById: kAnonymized,
+      elderlyId: kAnonymized,
+      createdAt: createdAt,
+      status: status,
+      takenById: takenById == null ? null : kAnonymized,
+      takenAt: takenAt,
+      familyNotifiedAt: familyNotifiedAt,
+      familyChannel: familyChannel,
+      familyOutcome: familyOutcome,
+      alternateNotifiedAt: alternateNotifiedAt,
+      alternateOutcome: alternateOutcome,
+      resolvedAt: resolvedAt,
+      resolvedById: resolvedById == null ? null : kAnonymized,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
         'id': id,
@@ -342,18 +466,38 @@ class EmergencyAlert {
         'elderlyId': elderlyId,
         'note': note,
         'createdAt': vitaIso(createdAt),
+        'status': status.name,
+        'takenById': takenById,
+        'takenAt': vitaIsoN(takenAt),
+        'familyNotifiedAt': vitaIsoN(familyNotifiedAt),
+        'familyChannel': familyChannel,
+        'familyOutcome': familyOutcome.name,
+        'alternateNotifiedAt': vitaIsoN(alternateNotifiedAt),
+        'alternateOutcome': alternateOutcome.name,
+        'resolvedAt': vitaIsoN(resolvedAt),
+        'resolvedById': resolvedById,
+        'resolutionNote': resolutionNote,
       };
 
-  factory EmergencyAlert.fromJson(Map<String, dynamic> json) {
-    return EmergencyAlert(
-      id: json['id'] as String,
-      callId: json['callId'] as String,
-      triggeredById: json['triggeredById'] as String,
-      elderlyId: json['elderlyId'] as String,
-      note: json['note'] as String?,
-      createdAt: DateTime.parse(json['createdAt'] as String),
-    );
-  }
+  factory EmergencyAlert.fromJson(Map<String, dynamic> json) => EmergencyAlert(
+        id: json['id'] as String,
+        callId: json['callId'] as String,
+        triggeredById: json['triggeredById'] as String,
+        elderlyId: json['elderlyId'] as String,
+        note: json['note'] as String?,
+        createdAt: DateTime.parse(json['createdAt'] as String),
+        status: _enumByName(AlertStatus.values, json['status'], AlertStatus.open),
+        takenById: json['takenById'] as String?,
+        takenAt: _dateOrNull(json['takenAt']),
+        familyNotifiedAt: _dateOrNull(json['familyNotifiedAt']),
+        familyChannel: json['familyChannel'] as String?,
+        familyOutcome: _enumByName(FamilyOutcome.values, json['familyOutcome'], FamilyOutcome.pending),
+        alternateNotifiedAt: _dateOrNull(json['alternateNotifiedAt']),
+        alternateOutcome: _enumByName(FamilyOutcome.values, json['alternateOutcome'], FamilyOutcome.pending),
+        resolvedAt: _dateOrNull(json['resolvedAt']),
+        resolvedById: json['resolvedById'] as String?,
+        resolutionNote: json['resolutionNote'] as String?,
+      );
 }
 
 class CallSurvey {

@@ -18,9 +18,9 @@ bool isInShift(List<AvailabilitySlot> volunteerSlots, DateTime colombiaNow) {
 
 /// Voluntarios que pueden recibir una llamada ahora, del que lleva más tiempo sin llamadas al que menos.
 ///
-/// Un voluntario entra si: es voluntario, tiene la cuenta activa, está marcado disponible, avisó que
-/// sigue conectado hace menos de [presenceWindow], está dentro de su turno y no está ocupado en otra
-/// solicitud que suena o está conectada.
+/// Un voluntario entra si: es voluntario, tiene la cuenta activa, está marcado disponible, está
+/// dentro de su turno y no está ocupado en otra solicitud que suena o está conectada. Si
+/// [requireRecentPresence] es true, también se exige un latido reciente.
 ///
 /// [requests] debe venir ya normalizada (sin solicitudes vencidas). [ignoreRequestId] evita que la
 /// propia solicitud que se está asignando cuente como "ocupado".
@@ -32,15 +32,17 @@ List<VitaUser> selectVolunteers({
   String? excludeId,
   String? ignoreRequestId,
   Duration presenceWindow = kPresenceWindow,
+  bool requireRecentPresence = true,
 }) {
   final colombiaNow = colombiaTime(now);
   final list = users.where((u) {
     if (u.role != UserRole.volunteer) return false;
     if (u.status != AccountStatus.active) return false;
     if (!u.available) return false;
-    // Disponible en el papel no basta: tiene que haber avisado hace poco que sigue conectado.
-    final seen = u.lastSeenAt;
-    if (seen == null || now.difference(seen) > presenceWindow) return false;
+    if (requireRecentPresence) {
+      final seen = u.lastSeenAt;
+      if (seen == null || now.difference(seen) > presenceWindow) return false;
+    }
     if (excludeId != null && u.id == excludeId) return false;
     if (!isInShift(slots.where((s) => s.volunteerId == u.id).toList(), colombiaNow)) return false;
     final busy = requests.any(
@@ -73,6 +75,7 @@ VitaUser? chooseVolunteer({
   String? previousVolunteerId,
   String? preferredId,
   Duration presenceWindow = kPresenceWindow,
+  bool requireRecentPresence = true,
 }) {
   var candidates = selectVolunteers(
     users: users,
@@ -82,6 +85,7 @@ VitaUser? chooseVolunteer({
     excludeId: previousVolunteerId,
     ignoreRequestId: requestId,
     presenceWindow: presenceWindow,
+    requireRecentPresence: requireRecentPresence,
   );
   if (candidates.isEmpty) {
     candidates = selectVolunteers(
@@ -91,6 +95,7 @@ VitaUser? chooseVolunteer({
       now: now,
       ignoreRequestId: requestId,
       presenceWindow: presenceWindow,
+      requireRecentPresence: requireRecentPresence,
     );
   }
   if (preferredId != null) {

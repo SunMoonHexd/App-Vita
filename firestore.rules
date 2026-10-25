@@ -60,6 +60,17 @@ service cloud.firestore {
       allow create, update, delete: if signedIn() && uid() == userId;
     }
 
+    // Token privado del dispositivo para notificaciones al voluntario.
+    // El servicio de envío lo lee desde el backend, nunca desde otras cuentas.
+    match /pushTokens/{userId} {
+      allow read: if signedIn() && uid() == userId;
+      allow create, update: if signedIn() && uid() == userId
+        && request.resource.data.keys().hasOnly(['token', 'updatedAt'])
+        && request.resource.data.token is string
+        && request.resource.data.token.size() <= 4096;
+      allow delete: if signedIn() && uid() == userId;
+    }
+
     match /requests/{requestId} {
       allow read: if signedIn() && (
         resource.data.elderlyId == uid()
@@ -77,17 +88,49 @@ service cloud.firestore {
             && resource.data.status in ['searching', 'ringing']
             && request.resource.data.volunteerId == uid())
       );
+      // Coordinación puede anonimizar registros vencidos sin editar otros campos.
+      allow update: if isCoordinator()
+        && changedOnly(['elderlyId', 'volunteerId', 'roomName', 'joinCode']);
     }
 
     match /reports/{reportId} {
       allow create: if signedIn() && request.resource.data.reporterId == uid();
       allow read: if signedIn() && (resource.data.reporterId == uid() || isCoordinator());
       allow update: if isCoordinator();
+      // Anonimización de reportes vencidos (F18.7).
+      allow update: if isCoordinator()
+        && changedOnly(['reporterId', 'reportedId', 'comment']);
     }
 
     match /alerts/{alertId} {
-      allow create: if signedIn() && request.resource.data.triggeredById == uid();
+      allow create: if signedIn()
+        && request.resource.data.triggeredById == uid()
+        && request.resource.data.get('status', 'open') == 'open';
       allow read: if signedIn() && (resource.data.triggeredById == uid() || isCoordinator());
+      allow update: if isCoordinator()
+        && changedOnly([
+          'status', 'takenById', 'takenAt',
+          'familyNotifiedAt', 'familyChannel', 'familyOutcome',
+          'alternateNotifiedAt', 'alternateOutcome',
+          'resolvedAt', 'resolvedById', 'resolutionNote',
+          'triggeredById', 'elderlyId', 'note'
+        ]);
+    }
+
+    match /auditLogs/{id} {
+      allow create, read: if isCoordinator();
+      allow update, delete: if false;
+    }
+
+    match /config/{doc} {
+      allow read: if signedIn();
+      allow write: if isCoordinator();
+    }
+
+    match /dataRequests/{id} {
+      allow create: if signedIn();
+      allow read: if isCoordinator();
+      allow update, delete: if false;
     }
 
     match /surveys/{surveyId} {

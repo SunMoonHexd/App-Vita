@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
+import 'package:vita_app/data/services/volunteer_push_notifications.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
@@ -32,7 +33,11 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
     super.initState();
     // Latido: cada 20 s avisa que este celular sigue con la app abierta.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) VitaScope.of(context).touchPresence();
+      if (!mounted) return;
+      final repo = VitaScope.of(context);
+      repo.touchPresence();
+      final user = repo.currentUser;
+      if (user != null && user.available) _registerPushForAvailableVolunteer(user.id);
     });
     _presence = Timer.periodic(const Duration(seconds: 20), (_) {
       if (mounted) VitaScope.of(context).touchPresence();
@@ -44,6 +49,29 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
     _presence?.cancel();
     _code.dispose();
     super.dispose();
+  }
+
+  Future<void> _registerPushForAvailableVolunteer(String userId) async {
+    try {
+      final registered = await VolunteerPushNotifications.instance
+          .registerVolunteer(userId);
+      if (registered || !mounted) return;
+      await VitaScope.of(context).setAvailability(false);
+      if (mounted) {
+        await showVitaMessage(
+          context,
+          'Activa las notificaciones para recibir solicitudes cuando VITA esté minimizada.',
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        await showVitaMessage(
+          context,
+          'No se pudieron activar los avisos de llamadas: '
+          '${error.toString().replaceFirst('Exception: ', '')}',
+        );
+      }
+    }
   }
 
   Future<void> _joinIncoming(CallRequest request) async {
@@ -203,7 +231,7 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                                 const SizedBox(height: 2),
                                 Text(
                                   user.available
-                                      ? 'Recibirás solicitudes. Deja esta pantalla abierta.'
+                                      ? 'Recibirás avisos aunque minimices VITA. Desactiva tu disponibilidad al terminar.'
                                       : 'No recibirás solicitudes',
                                   style: TextStyle(fontSize: 16, color: context.vita.muted, height: 1.3),
                                 ),
@@ -214,6 +242,20 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                             value: user.available,
                             onChanged: (value) async {
                               try {
+                                if (value) {
+                                  final registered =
+                                      await VolunteerPushNotifications.instance
+                                          .registerVolunteer(user.id);
+                                  if (!registered) {
+                                    if (context.mounted) {
+                                      await showVitaMessage(
+                                        context,
+                                        'Permite las notificaciones para poder recibir solicitudes cuando VITA esté minimizada.',
+                                      );
+                                    }
+                                    return;
+                                  }
+                                }
                                 await repo.setAvailability(value);
                               } catch (e) {
                                 if (context.mounted) {

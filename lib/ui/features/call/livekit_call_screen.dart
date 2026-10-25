@@ -2,8 +2,10 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:vita_app/domain/call_health.dart';
 import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
+import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
 
 /// Pantalla de videollamada: video de la otra persona, tu cámara pequeña y botones grandes.
 class LiveKitCallScreen extends StatefulWidget {
@@ -42,7 +44,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
     setState(() {});
     if (_s.recordingPhase == RecordingPhase.askingMe && !_askDialogOpen) {
       _askDialogOpen = true;
-      WidgetsBinding.instance.addPostFrameCallback((_) => _askRecordingPermission());
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => _askRecordingPermission(),
+      );
     }
   }
 
@@ -58,8 +62,14 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
           'las dos personas verán el aviso "REC". Puedes detenerla cuando quieras.',
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No, gracias')),
-          FilledButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sí, acepto')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No, gracias'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sí, acepto'),
+          ),
         ],
       ),
     );
@@ -93,7 +103,12 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
               Positioned.fill(
                 child: remote != null
                     ? VideoTrackRenderer(remote, fit: VideoViewFit.cover)
-                    : _Waiting(connected: _s.hasRemote),
+                    : _Waiting(
+                        connected: _s.hasRemote,
+                        cameraOn: _s.remoteCamOn,
+                        name: _s.remoteDisplayName,
+                        photoBase64: _s.remotePhotoBase64,
+                      ),
               ),
               // Barra superior: tiempo y grabación.
               Positioned(
@@ -104,19 +119,22 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                   children: [
                     _Pill(text: _elapsed(), icon: Icons.timer_outlined),
                     const Spacer(),
-                    if (recording) const _Pill(text: 'REC', icon: Icons.fiber_manual_record, danger: true),
+                    if (recording)
+                      const _Pill(
+                        text: 'REC',
+                        icon: Icons.fiber_manual_record,
+                        danger: true,
+                      ),
                   ],
                 ),
               ),
-              if (_s.reconnecting)
-                const Positioned(
-                  top: 56,
-                  left: 0,
-                  right: 0,
-                  child: Center(child: _Pill(text: 'Reconectando…', icon: Icons.wifi_off)),
-                ),
+              Positioned(
+                top: 56,
+                left: 12,
+                child: _LinkPill(status: _s.linkStatus),
+              ),
               // Tu cámara.
-              if (local != null)
+              if (_s.camOn && local != null)
                 Positioned(
                   top: 56,
                   right: 12,
@@ -125,6 +143,37 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(16),
                     child: VideoTrackRenderer(local, fit: VideoViewFit.cover),
+                  ),
+                ),
+              if (!_s.camOn)
+                Positioned(
+                  top: 56,
+                  right: 12,
+                  width: 104,
+                  height: 144,
+                  child: Container(
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF202124),
+                      borderRadius: BorderRadius.circular(16),
+                    ),
+                    child: Center(
+                      child: VitaAvatar(
+                        name: _s.localDisplayName,
+                        size: 84,
+                        photoBase64: _s.localPhotoBase64,
+                      ),
+                    ),
+                  ),
+                ),
+              if (_s.devicesNeedAttention)
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: 140,
+                  child: _DeviceBanner(
+                    micHealth: _s.micHealth,
+                    camHealth: _s.camHealth,
+                    onRetry: _s.retryDevices,
                   ),
                 ),
               // Botones grandes.
@@ -142,31 +191,54 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                     ),
                   ),
                   child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _CallButton(
-                      icon: _s.micOn ? Icons.mic : Icons.mic_off,
-                      label: _s.micOn ? 'Micrófono' : 'Silenciado',
-                      active: _s.micOn,
-                      onTap: _s.toggleMic,
-                    ),
-                    _CallButton(
-                      icon: _s.camOn ? Icons.videocam : Icons.videocam_off,
-                      label: _s.camOn ? 'Cámara' : 'Sin cámara',
-                      active: _s.camOn,
-                      onTap: _s.toggleCamera,
-                    ),
-                    _recordButton(),
-                    _CallButton(
-                      icon: Icons.call_end,
-                      label: 'Colgar',
-                      color: VitaColors.alert,
-                      onTap: () async => _s.hangUp(),
-                    ),
-                  ],
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      _CallButton(
+                        icon: _s.micOn ? Icons.mic : Icons.mic_off,
+                        label: _s.micNeedsRetry
+                            ? 'Reintentar'
+                            : (_s.micOn ? 'Micrófono' : 'Silenciado'),
+                        tooltip: _s.micNeedsRetry
+                            ? 'Reintentar activar el micrófono'
+                            : null,
+                        active: _s.micOn,
+                        onTap: _s.micNeedsRetry
+                            ? _s.retryMicrophone
+                            : _s.toggleMic,
+                      ),
+                      _CallButton(
+                        icon: _s.camOn ? Icons.videocam : Icons.videocam_off,
+                        label: _s.camNeedsRetry
+                            ? 'Reintentar'
+                            : (_s.camOn ? 'Cámara' : 'Sin cámara'),
+                        tooltip: _s.camNeedsRetry
+                            ? 'Reintentar activar la cámara'
+                            : null,
+                        active: _s.camOn,
+                        onTap: _s.camNeedsRetry
+                            ? _s.retryCamera
+                            : _s.toggleCamera,
+                      ),
+                      _recordButton(),
+                      _CallButton(
+                        icon: Icons.call_end,
+                        label: 'Colgar',
+                        color: VitaColors.alert,
+                        onTap: () async => _s.hangUp(),
+                      ),
+                    ],
                   ),
                 ),
               ),
+              if (_s.hasRemote)
+                Positioned(
+                  top: 100,
+                  left: 12,
+                  child: _MediaStatus(
+                    microphoneOn: _s.remoteMicOn,
+                    cameraOn: _s.remoteCamOn,
+                  ),
+                ),
             ],
           ),
         ),
@@ -183,7 +255,10 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
           onTap: _s.stopRecording, // cancela la solicitud
         );
       case RecordingPhase.starting:
-        return const _CallButton(icon: Icons.hourglass_top, label: 'Iniciando…');
+        return const _CallButton(
+          icon: Icons.hourglass_top,
+          label: 'Iniciando…',
+        );
       default:
         if (_s.isRecording) {
           return _CallButton(
@@ -203,9 +278,17 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
 }
 
 class _Waiting extends StatelessWidget {
-  const _Waiting({required this.connected});
+  const _Waiting({
+    required this.connected,
+    required this.cameraOn,
+    required this.name,
+    this.photoBase64,
+  });
 
   final bool connected;
+  final bool? cameraOn;
+  final String name;
+  final String? photoBase64;
 
   @override
   Widget build(BuildContext context) {
@@ -213,15 +296,92 @@ class _Waiting extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(Icons.person, size: 96, color: Colors.white38),
+          VitaAvatar(name: name, size: 144, photoBase64: photoBase64),
           const SizedBox(height: 16),
           Text(
-            connected ? 'La otra persona tiene la cámara apagada' : 'Esperando a la otra persona…',
+            !connected
+                ? 'Esperando a la otra persona…'
+                : cameraOn == false
+                ? '$name tiene la cámara apagada'
+                : 'Conectando el video de la otra persona…',
             textAlign: TextAlign.center,
             style: const TextStyle(color: Colors.white70, fontSize: 20),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _MediaStatus extends StatelessWidget {
+  const _MediaStatus({required this.microphoneOn, required this.cameraOn});
+
+  final bool? microphoneOn;
+  final bool? cameraOn;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.black54,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _MediaStatusLine(
+            icon: microphoneOn == true ? Icons.mic : Icons.mic_off,
+            label: _statusLabel('Micrófono', microphoneOn),
+            enabled: microphoneOn,
+          ),
+          const SizedBox(height: 5),
+          _MediaStatusLine(
+            icon: cameraOn == true ? Icons.videocam : Icons.videocam_off,
+            label: _statusLabel('Cámara', cameraOn),
+            enabled: cameraOn,
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _statusLabel(String device, bool? enabled) {
+    final isCamera = device == 'Cámara';
+    return switch (enabled) {
+      true => isCamera ? 'Cámara activa' : 'Micrófono activo',
+      false => isCamera ? 'Cámara apagada' : 'Micrófono apagado',
+      null => '$device sin datos',
+    };
+  }
+}
+
+class _MediaStatusLine extends StatelessWidget {
+  const _MediaStatusLine({
+    required this.icon,
+    required this.label,
+    required this.enabled,
+  });
+
+  final IconData icon;
+  final String label;
+  final bool? enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enabled == null
+        ? Colors.white60
+        : enabled!
+        ? Colors.lightGreenAccent
+        : Colors.orangeAccent;
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 16, color: color),
+        const SizedBox(width: 6),
+        Text(label, style: TextStyle(color: color, fontSize: 12)),
+      ],
     );
   }
 }
@@ -246,7 +406,76 @@ class _Pill extends StatelessWidget {
         children: [
           Icon(icon, size: 16, color: Colors.white),
           const SizedBox(width: 6),
-          Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.w700)),
+          Text(
+            text,
+            style: const TextStyle(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LinkPill extends StatelessWidget {
+  const _LinkPill({required this.status});
+
+  final LinkStatus status;
+
+  IconData get _icon {
+    if (status.bars == 0)
+      return status.warn ? Icons.wifi_off : Icons.wifi_1_bar;
+    if (status.bars == 1) return Icons.wifi_1_bar;
+    if (status.bars == 2) return Icons.wifi_2_bar;
+    return Icons.wifi;
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      _Pill(text: status.label, icon: _icon, danger: status.warn);
+}
+
+class _DeviceBanner extends StatelessWidget {
+  const _DeviceBanner({
+    required this.micHealth,
+    required this.camHealth,
+    required this.onRetry,
+  });
+
+  final DeviceHealth micHealth;
+  final DeviceHealth camHealth;
+  final Future<void> Function() onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final messages = <String>[
+      if (needsAttention(micHealth)) deviceMessage(micHealth, mic: true),
+      if (needsAttention(camHealth)) deviceMessage(camHealth, mic: false),
+    ];
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: VitaColors.alert),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.warning_amber_rounded, color: Colors.white),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              messages.join(' '),
+              style: const TextStyle(color: Colors.white, fontSize: 15),
+            ),
+          ),
+          const SizedBox(width: 8),
+          FilledButton(
+            onPressed: () => onRetry(),
+            child: const Text('Reintentar'),
+          ),
         ],
       ),
     );
@@ -258,6 +487,7 @@ class _CallButton extends StatelessWidget {
     required this.icon,
     required this.label,
     this.onTap,
+    this.tooltip,
     this.color,
     this.active = true,
   });
@@ -265,6 +495,7 @@ class _CallButton extends StatelessWidget {
   final IconData icon;
   final String label;
   final Future<void> Function()? onTap;
+  final String? tooltip;
   final Color? color;
   final bool active;
 
@@ -278,10 +509,17 @@ class _CallButton extends StatelessWidget {
         Material(
           color: background,
           shape: const CircleBorder(),
-          child: InkWell(
-            customBorder: const CircleBorder(),
-            onTap: onTap == null ? null : () => onTap!(),
-            child: SizedBox(width: 64, height: 64, child: Icon(icon, size: 30, color: foreground)),
+          child: Tooltip(
+            message: tooltip ?? label,
+            child: InkWell(
+              customBorder: const CircleBorder(),
+              onTap: onTap == null ? null : () => onTap!(),
+              child: SizedBox(
+                width: 64,
+                height: 64,
+                child: Icon(icon, size: 30, color: foreground),
+              ),
+            ),
           ),
         ),
         const SizedBox(height: 6),

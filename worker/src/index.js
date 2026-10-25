@@ -1,4 +1,4 @@
-import { createRemoteJWKSet, jwtVerify } from 'jose';
+import { createRemoteJWKSet, importPKCS8, jwtVerify, SignJWT } from 'jose';
 import {
   AccessToken,
   EgressClient,
@@ -13,6 +13,157 @@ const JWKS = createRemoteJWKSet(
 
 const json = (body, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+let googleAccessTokenCache;
+let googleAccessTokenExpiresAt = 0;
+
+async function getGoogleAccessToken(env) {
+  if (googleAccessTokenCache && Date.now() < googleAccessTokenExpiresAt - 60_000) {
+    return googleAccessTokenCache;
+  }
+  if (!env.GOOGLE_SERVICE_ACCOUNT_EMAIL || !env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY) {
+    throw new Error('Falta configurar la cuenta de servicio para notificaciones.');
+  }
+
+  const privateKey = env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY.replace(/\\n/g, '\n');
+  const key = await importPKCS8(privateKey, 'RS256');
+  const assertion = await new SignJWT({
+    scope: [
+      'https://www.googleapis.com/auth/datastore',
+      'https://www.googleapis.com/auth/firebase.messaging',
+    ].join(' '),
+  })
+    .setProtectedHeader({ alg: 'RS256', typ: 'JWT' })
+    .setIssuer(env.GOOGLE_SERVICE_ACCOUNT_EMAIL)
+    .setAudience('https://oauth2.googleapis.com/token')
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(key);
+
+  const response = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'urn:ietf:params:oauth:grant-type:jwt-bearer',
+      assertion,
+    }),
+  });
+  if (!response.ok) throw new Error('No se pudo autenticar el servicio de notificaciones.');
+  const data = await response.json();
+  googleAccessTokenCache = data.access_token;
+  googleAccessTokenExpiresAt = Date.now() + Number(data.expires_in || 3600) * 1000;
+  return googleAccessTokenCache;
+}
+
+async function getFirestoreDocument(env, accessToken, documentPath) {
+  const path = documentPath.split('/').map(encodeURIComponent).join('/');
+  const url = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`;
+  const response = await fetch(url, { headers: { authorization: `Bearer ${accessToken}` } });
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error('No se pudo consultar la solicitud en Firestore.');
+  return response.json();
+}
+
+async function patchFirestoreDocument(env, accessToken, documentPath, fields) {
+  const path = documentPath.split('/').map(encodeURIComponent).join('/');
+  const url = new URL(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`);
+  for (const field of Object.keys(fields)) url.searchParams.append('updateMask.fieldPaths', field);
+  const response = await fetch(url, {
+    method: 'PATCH',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({ fields }),
+  });
+  if (!response.ok) throw new Error('No se pudo actualizar el registro de notificación.');
+}
+
+const stringField = (document, name) => document?.fields?.[name]?.stringValue;
+const boolField = (document, name) => document?.fields?.[name]?.booleanValue === true;
+const integerField = (document, name) => Number(document?.fields?.[name]?.integerValue || 0);
+
+async function notifyIncomingCall(request, uid, env) {
+  const requestId = request.requestId;
+  if (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(requestId)) {
+    return json({ error: 'Solicitud inválida' }, 400);
+  }
+
+  const accessToken = await getGoogleAccessToken(env);
+  const call = await getFirestoreDocument(env, accessToken, `requests/${requestId}`);
+  if (!call || stringField(call, 'elderlyId') !== uid) {
+    return json({ error: 'Solicitud no encontrada' }, 404);
+  }
+  if (stringField(call, 'status') !== 'ringing') {
+    return json({ ok: true, delivered: false, reason: 'not_ringing' });
+  }
+
+  const volunteerId = stringField(call, 'volunteerId');
+  if (!volunteerId) return json({ ok: true, delivered: false, reason: 'no_volunteer' });
+  const volunteer = await getFirestoreDocument(env, accessToken, `users/${volunteerId}`);
+  if (
+    stringField(volunteer, 'role') !== 'volunteer' ||
+    stringField(volunteer, 'status') !== 'active' ||
+    !boolField(volunteer, 'available')
+  ) {
+    return json({ ok: true, delivered: false, reason: 'volunteer_unavailable' });
+  }
+
+  const tokenDocument = await getFirestoreDocument(env, accessToken, `pushTokens/${volunteerId}`);
+  const token = stringField(tokenDocument, 'token');
+  if (!token) return json({ ok: true, delivered: false, reason: 'token_missing' });
+
+  const attempt = integerField(call, 'attempts');
+  if (
+    stringField(call, 'pushNotificationSentToVolunteer') === volunteerId &&
+    integerField(call, 'pushNotificationSentAtAttempt') === attempt
+  ) {
+    return json({ ok: true, delivered: true, duplicate: true });
+  }
+
+  await patchFirestoreDocument(env, accessToken, `requests/${requestId}`, {
+    pushNotificationSentToVolunteer: { stringValue: volunteerId },
+    pushNotificationSentAtAttempt: { integerValue: String(attempt) },
+  });
+
+  const response = await fetch(
+    `https://fcm.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/messages:send`,
+    {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        message: {
+          token,
+          notification: {
+            title: '¡Hay alguien esperando compañía!',
+            body: 'Tienes una solicitud de llamada en VITA. Toca para revisarla.',
+          },
+          data: { type: 'incoming_call', requestId },
+          android: {
+            priority: 'HIGH',
+            notification: {
+              icon: 'ic_stat_vita',
+              color: '#14877A',
+              sound: 'default',
+            },
+          },
+          apns: { payload: { aps: { sound: 'default' } } },
+        },
+      }),
+    },
+  );
+  if (!response.ok) {
+    await patchFirestoreDocument(env, accessToken, `requests/${requestId}`, {
+      pushNotificationSentToVolunteer: { nullValue: null },
+      pushNotificationSentAtAttempt: { nullValue: null },
+    });
+    throw new Error('Firebase no pudo entregar la notificación.');
+  }
+  return json({ ok: true, delivered: true });
+}
 
 /** Solo acepta a quien haya iniciado sesión en la app (token de Firebase Auth). */
 async function verifyFirebaseUser(request, env) {
@@ -53,16 +204,42 @@ export default {
     }
 
     try {
+      if (path === '/notifications/incoming-call') {
+        return await notifyIncomingCall(body, uid, env);
+      }
+
       // ---- Entrar a una sala ----
       if (path === '/token') {
         if (!validRoom(body.roomName)) return json({ error: 'Sala inválida' }, 400);
+        if (typeof body.requestId !== 'string' || !/^[A-Za-z0-9_-]{1,120}$/.test(body.requestId)) {
+          return json({ error: 'Solicitud inválida' }, 400);
+        }
+        const accessToken = await getGoogleAccessToken(env);
+        const call = await getFirestoreDocument(env, accessToken, `requests/${body.requestId}`);
+        const isParticipant =
+          stringField(call, 'elderlyId') === uid || stringField(call, 'volunteerId') === uid;
+        if (
+          !call ||
+          !isParticipant ||
+          stringField(call, 'status') !== 'connected' ||
+          stringField(call, 'roomName') !== body.roomName
+        ) {
+          return json({ error: 'No tienes acceso a esta llamada.' }, 403);
+        }
         const name = String(body.displayName || 'Participante').slice(0, 60);
         const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {
           identity: uid,
           name,
           ttl: '3h',
         });
-        at.addGrant({ roomJoin: true, room: body.roomName, canPublish: true, canSubscribe: true, canPublishData: true });
+        at.addGrant({
+          roomJoin: true,
+          room: body.roomName,
+          canPublish: true,
+          canSubscribe: true,
+          canPublishData: true,
+          canUpdateOwnMetadata: true,
+        });
         return json({ token: await at.toJwt(), url: env.LIVEKIT_URL });
       }
 

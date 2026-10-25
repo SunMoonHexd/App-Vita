@@ -2,10 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/domain/emergency_followup.dart';
 import 'package:vita_app/domain/volunteer_verification.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/theme_widgets.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
+import 'package:vita_app/ui/features/coordinator/privacy_admin_view.dart';
 
 class CoordinatorHomeView extends StatelessWidget {
   const CoordinatorHomeView({super.key});
@@ -19,6 +21,14 @@ class CoordinatorHomeView extends StatelessWidget {
     return VitaPage(
       title: 'Panel coordinación',
       actions: [
+        IconButton(
+          tooltip: 'Privacidad y seguridad',
+          icon: const Icon(Icons.shield_outlined),
+          onPressed: () => Navigator.push(
+            context,
+            MaterialPageRoute<void>(builder: (_) => const PrivacyAdminView()),
+          ),
+        ),
         IconButton(
           tooltip: 'Apariencia',
           icon: const Icon(Icons.brightness_6_rounded),
@@ -114,7 +124,7 @@ class CoordinatorHomeView extends StatelessWidget {
             ),
           const Divider(),
           const Text('Alertas de emergencia', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
-          for (final alert in repo.alerts) _AlertCard(alert: alert),
+          for (final alert in sortAlerts(repo.alerts)) _AlertCard(alert: alert),
           const Divider(),
           const Text('Historial de llamadas', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           for (final call in repo.requests.reversed)
@@ -166,68 +176,293 @@ class CoordinatorHomeView extends StatelessWidget {
   }
 }
 
-/// Alerta de emergencia con el contacto del familiar a un toque (RF11).
+/// Alerta de emergencia con su seguimiento paso a paso (RF11 · F8.7, F8.9 y F8.11).
 class _AlertCard extends StatelessWidget {
   const _AlertCard({required this.alert});
 
   final EmergencyAlert alert;
 
-  /// Deja solo los dígitos y, si son 10 (celular colombiano), antepone el 57.
-  String _international(String phone) {
-    final digits = phone.replaceAll(RegExp(r'\D'), '');
-    return digits.length == 10 ? '57$digits' : digits;
+  static String _when(DateTime date) {
+    final local = date.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(local.day)}/${two(local.month)} ${two(local.hour)}:${two(local.minute)}';
+  }
+
+  static String _hour(DateTime? date) {
+    if (date == null) return '';
+    final local = date.toLocal();
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(local.hour)}:${two(local.minute)}';
+  }
+
+  /// Abre WhatsApp o el marcador y, si se pudo abrir, deja anotado que se avisó.
+  Future<void> _contact(
+    BuildContext context, {
+    required bool family,
+    required String phone,
+    required bool whatsapp,
+    required String message,
+  }) async {
+    final repo = VitaScope.of(context);
+    final uri = whatsapp
+        ? Uri.https('wa.me', '/${internationalPhone(phone)}', {'text': message})
+        : Uri.parse('tel:$phone');
+    var opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened) return;
+    final channel = whatsapp ? 'whatsapp' : 'llamada';
+    if (family) {
+      await repo.notifyFamily(alert.id, channel: channel);
+    } else {
+      await repo.notifyAlternate(alert.id, channel: channel);
+    }
+  }
+
+  Future<void> _close(BuildContext context) async {
+    final repo = VitaScope.of(context);
+    final controller = TextEditingController();
+    final note = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Cerrar alerta'),
+        content: TextField(
+          controller: controller,
+          maxLines: 3,
+          decoration: const InputDecoration(
+            labelText: 'Nota de cierre (opcional)',
+            helperText: 'Qué pasó y quién se hizo cargo.',
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Cancelar')),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text),
+            child: const Text('Cerrar alerta'),
+          ),
+        ],
+      ),
+    );
+    if (note != null) await repo.resolveAlert(alert.id, note: note);
+  }
+
+  Widget _panel(
+    VitaToneColors tone,
+    String title,
+    List<Widget> actions, {
+    String? detail,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(color: tone.bg, borderRadius: BorderRadius.circular(12)),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(title, style: TextStyle(fontWeight: FontWeight.w800, color: tone.fg)),
+          if (detail != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(detail)),
+          const SizedBox(height: 8),
+          Wrap(spacing: 8, runSpacing: 4, children: actions),
+        ],
+      ),
+    );
+  }
+
+  Widget _stepPanel(
+    BuildContext context,
+    EmergencyStep step, {
+    required VitaUser? elderly,
+    required String familyPhone,
+    required String alternatePhone,
+    required String message,
+    required VitaToneColors tone,
+  }) {
+    final repo = VitaScope.of(context);
+    final familyName = (elderly?.familyName ?? '').trim().isEmpty ? 'Familiar' : elderly!.familyName!;
+    final alternateName = (elderly?.alternateName ?? '').trim().isEmpty ? 'Contacto alternativo' : elderly!.alternateName!;
+
+    List<Widget> contactButtons({required bool family, required String phone}) => [
+          FilledButton.icon(
+            icon: const Icon(Icons.chat),
+            label: const Text('WhatsApp'),
+            onPressed: () => _contact(context, family: family, phone: phone, whatsapp: true, message: message),
+          ),
+          OutlinedButton.icon(
+            icon: const Icon(Icons.call),
+            label: const Text('Llamar'),
+            onPressed: () => _contact(context, family: family, phone: phone, whatsapp: false, message: message),
+          ),
+        ];
+
+    String channelOf(String? channel) => channel == 'whatsapp' ? 'WhatsApp' : 'llamada';
+
+    return switch (step) {
+      EmergencyStep.contactFamily => _panel(
+          tone,
+          'Paso 1 · Avisar al familiar',
+          contactButtons(family: true, phone: familyPhone),
+          detail: '$familyName · $familyPhone',
+        ),
+      EmergencyStep.awaitFamily => _panel(
+          tone,
+          'Se avisó al familiar por ${channelOf(alert.familyChannel)} a las ${_hour(alert.familyNotifiedAt)}. ¿Respondió?',
+          [
+            FilledButton(
+              onPressed: () => repo.setFamilyOutcome(alert.id, FamilyOutcome.reached),
+              child: const Text('Sí, respondió'),
+            ),
+            OutlinedButton(
+              onPressed: () => repo.setFamilyOutcome(alert.id, FamilyOutcome.noAnswer),
+              child: const Text('No contestó'),
+            ),
+          ],
+          detail: '$familyName · $familyPhone',
+        ),
+      EmergencyStep.contactAlternate => _panel(
+          tone,
+          'Paso 2 · Avisar al contacto alternativo',
+          contactButtons(family: false, phone: alternatePhone),
+          detail: '$alternateName · $alternatePhone',
+        ),
+      EmergencyStep.awaitAlternate => _panel(
+          tone,
+          'Se avisó al contacto alternativo a las ${_hour(alert.alternateNotifiedAt)}. ¿Respondió?',
+          [
+            FilledButton(
+              onPressed: () => repo.setAlternateOutcome(alert.id, FamilyOutcome.reached),
+              child: const Text('Sí, respondió'),
+            ),
+            OutlinedButton(
+              onPressed: () => repo.setAlternateOutcome(alert.id, FamilyOutcome.noAnswer),
+              child: const Text('No contestó'),
+            ),
+          ],
+          detail: '$alternateName · $alternatePhone',
+        ),
+      EmergencyStep.escalate => _panel(
+          tone,
+          'Familiar no localizable',
+          [
+            FilledButton.icon(
+              icon: const Icon(Icons.call),
+              label: const Text('Llamar al 123'),
+              onPressed: () => launchUrl(Uri.parse('tel:123'), mode: LaunchMode.externalApplication),
+            ),
+            OutlinedButton(onPressed: () => _close(context), child: const Text('Cerrar alerta')),
+          ],
+          detail: 'No se logró hablar con el familiar ni con el contacto alternativo. '
+              'Llama al 123 o pide una visita al domicilio, y anota lo que se hizo al cerrar.',
+        ),
+      EmergencyStep.readyToClose => _panel(
+          tone,
+          alert.familyOutcome == FamilyOutcome.reached
+              ? 'Se logró hablar con el familiar'
+              : 'Se logró hablar con el contacto alternativo',
+          [FilledButton(onPressed: () => _close(context), child: const Text('Cerrar alerta'))],
+        ),
+      EmergencyStep.closed => _panel(
+          tone,
+          'Atendida el ${_when(alert.resolvedAt ?? alert.createdAt)}',
+          const [],
+          detail: alert.resolutionNote,
+        ),
+    };
   }
 
   @override
   Widget build(BuildContext context) {
-    final elderly = VitaScope.of(context).userById(alert.elderlyId);
-    final familyPhone = elderly?.familyPhone;
-    final altPhone = elderly?.alternatePhone;
+    final repo = VitaScope.of(context);
+    final vita = context.vita;
+    final elderly = repo.userById(alert.elderlyId);
+    final elderlyName = elderly?.displayName ?? 'Un adulto mayor';
+    final familyPhone = (elderly?.familyPhone ?? '').trim();
+    final alternatePhone = (elderly?.alternatePhone ?? '').trim();
+    final step = nextEmergencyStep(
+      alert,
+      hasFamilyPhone: familyPhone.isNotEmpty,
+      hasAlternatePhone: alternatePhone.isNotEmpty,
+    );
+    final message = buildFamilyMessage(elderlyName: elderlyName, when: alert.createdAt);
+    final closed = alert.status == AlertStatus.resolved;
+    final tone = closed
+        ? vita.successTone
+        : (step == EmergencyStep.escalate ? vita.dangerTone : vita.warningTone);
+
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                Icon(Icons.emergency, color: context.vita.dangerTone.fg),
+                Icon(closed ? Icons.check_circle : Icons.emergency, color: tone.fg),
                 const SizedBox(width: 8),
-                Expanded(child: Text(alert.note ?? 'Alerta', style: const TextStyle(fontWeight: FontWeight.w700))),
+                Expanded(
+                  child: Text(
+                    alert.note ?? 'Alerta de emergencia',
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
+                  ),
+                ),
+                _StatusChip(status: alert.status),
               ],
             ),
-            Text('${elderly?.displayName ?? 'Adulto mayor'} · ${alert.createdAt.toLocal()}'),
-            if (familyPhone != null && familyPhone.isNotEmpty) ...[
-              const SizedBox(height: 8),
-              Text('Familiar: ${elderly?.familyName ?? ''} · $familyPhone'),
-              Wrap(
-                spacing: 8,
-                children: [
-                  TextButton.icon(
-                    icon: const Icon(Icons.call),
-                    label: const Text('Llamar al familiar'),
-                    onPressed: () => launchUrl(Uri.parse('tel:$familyPhone')),
-                  ),
-                  TextButton.icon(
-                    icon: const Icon(Icons.chat),
-                    label: const Text('WhatsApp'),
-                    onPressed: () => launchUrl(
-                      Uri.parse('https://wa.me/${_international(familyPhone)}'),
-                      mode: LaunchMode.externalApplication,
-                    ),
-                  ),
-                ],
+            const SizedBox(height: 4),
+            Text(
+              alert.isAnonymized
+                  ? 'Datos anonimizados · ${_when(alert.createdAt)}'
+                  : '$elderlyName · ${_when(alert.createdAt)}',
+              style: TextStyle(color: vita.muted),
+            ),
+            if (!alert.isAnonymized) ...[
+              const SizedBox(height: 10),
+              _stepPanel(
+                context,
+                step,
+                elderly: elderly,
+                familyPhone: familyPhone,
+                alternatePhone: alternatePhone,
+                message: message,
+                tone: tone,
               ),
+              if (!closed)
+                Row(
+                  children: [
+                    if (alert.status == AlertStatus.open)
+                      TextButton(onPressed: () => repo.takeAlert(alert.id), child: const Text('Tomar alerta')),
+                    if (step != EmergencyStep.escalate && step != EmergencyStep.readyToClose)
+                      TextButton(onPressed: () => _close(context), child: const Text('Cerrar alerta')),
+                  ],
+                ),
             ],
-            if (altPhone != null && altPhone.isNotEmpty)
-              TextButton.icon(
-                icon: const Icon(Icons.call),
-                label: Text('Contacto alternativo: ${elderly?.alternateName ?? ''} · $altPhone'),
-                onPressed: () => launchUrl(Uri.parse('tel:$altPhone')),
-              ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Etiqueta con el estado de la alerta (F8.11).
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.status});
+
+  final AlertStatus status;
+
+  @override
+  Widget build(BuildContext context) {
+    final vita = context.vita;
+    final (label, tone) = switch (status) {
+      AlertStatus.open => ('Abierta', vita.dangerTone),
+      AlertStatus.inProgress => ('En atención', vita.warningTone),
+      AlertStatus.resolved => ('Atendida', vita.successTone),
+    };
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(color: tone.bg, borderRadius: BorderRadius.circular(20)),
+      child: Text(label, style: TextStyle(color: tone.fg, fontWeight: FontWeight.w700, fontSize: 12)),
     );
   }
 }

@@ -5,7 +5,6 @@ import 'package:vita_app/config/app_navigator.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
 import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
-import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/firebase_options.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';

@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
-import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
 import 'package:vita_app/ui/core/widgets/photo_widgets.dart';
 import 'package:vita_app/ui/core/widgets/profile_widgets.dart';
 import 'package:vita_app/ui/core/widgets/theme_widgets.dart';

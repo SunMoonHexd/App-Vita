@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:vita_app/data/services/internet_connectivity_service.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 
@@ -101,13 +101,7 @@ class _VitaConnectionPillState extends State<VitaConnectionPill> {
   }
 
   Future<void> _check() async {
-    bool ok;
-    try {
-      final result = await InternetAddress.lookup('firebase.google.com').timeout(const Duration(seconds: 3));
-      ok = result.isNotEmpty && result.first.rawAddress.isNotEmpty;
-    } catch (_) {
-      ok = false;
-    }
+    final ok = await InternetConnectivityService.hasInternetConnection();
     if (mounted && ok != _online) setState(() => _online = ok);
   }
 

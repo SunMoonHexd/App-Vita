@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
+import 'package:vita_app/domain/call_health.dart';
 import 'package:vita_app/config/app_navigator.dart';
 import 'package:vita_app/config/call_settings.dart';
 import 'package:vita_app/data/services/call_notice.dart';
@@ -26,29 +27,114 @@ class LiveKitCallService extends ChangeNotifier {
   String _roomName = '';
   bool _interrupted = false;
   bool _reconnecting = false;
+  String? _reconnectMessage;
   bool _micOn = true;
   bool _camOn = true;
+  bool _micNeedsRetry = false;
+  bool _camNeedsRetry = false;
+  bool _micChanging = false;
+  bool _camChanging = false;
   DateTime? _joinedAt;
   Timer? _aloneTimer;
   Timer? _breakTimer;
+  bool _micFailed = false;
+  bool _camFailed = false;
+  int? _micDevices;
+  int? _camDevices;
+  LinkQuality _lastQuality = LinkQuality.unknown;
+  StreamSubscription<List<MediaDevice>>? _deviceSub;
 
   // Grabación
   RecordingPhase _phase = RecordingPhase.idle;
   String? _egressId;
   String _requesterName = '';
   String _displayName = '';
+  String? _profilePhotoBase64;
 
   Room? get room => _room;
   bool get reconnecting => _reconnecting;
+  String? get reconnectMessage => _reconnectMessage;
   bool get micOn => _micOn;
   bool get camOn => _camOn;
+  bool get micNeedsRetry => _micNeedsRetry;
+  bool get camNeedsRetry => _camNeedsRetry;
   DateTime? get joinedAt => _joinedAt;
   RecordingPhase get recordingPhase => _phase;
   String get requesterName => _requesterName;
   bool get hasRemote => _room?.remoteParticipants.isNotEmpty ?? false;
+  String get localDisplayName => _displayName;
+  String? get localPhotoBase64 => _profilePhotoBase64;
+  String get remoteDisplayName =>
+      _firstRemoteParticipant?.name ?? 'La otra persona';
+  String? get remotePhotoBase64 {
+    final metadata = _firstRemoteParticipant?.metadata;
+    if (metadata == null || metadata.isEmpty) return null;
+    try {
+      final decoded = jsonDecode(metadata);
+      if (decoded is Map) return decoded['profilePhotoBase64'] as String?;
+    } catch (_) {
+      // Si la otra persona usa una versión anterior, mostramos sus iniciales.
+    }
+    return null;
+  }
+
+  DeviceHealth get micHealth => deviceHealth(
+    wantedOn: _micOn,
+    failed: _micFailed,
+    devicesFound: _micDevices,
+  );
+  DeviceHealth get camHealth => deviceHealth(
+    wantedOn: _camOn,
+    failed: _camFailed,
+    devicesFound: _camDevices,
+  );
+  bool get devicesNeedAttention =>
+      needsAttention(micHealth) || needsAttention(camHealth);
+
+  LinkQuality get linkQuality {
+    final quality = _room?.localParticipant?.connectionQuality;
+    if (quality == null) return LinkQuality.unknown;
+    return LinkQuality.values.firstWhere(
+      (value) => value.name == quality.name,
+      orElse: () => LinkQuality.unknown,
+    );
+  }
+
+  LinkStatus get linkStatus =>
+      describeLink(linkQuality, reconnecting: _reconnecting);
+
+  /// Estado publicado por la otra persona. `null` significa que aún no publicó
+  /// una pista de ese tipo, así no se confunde con un dispositivo apagado.
+  bool? get remoteMicOn {
+    final participant = _firstRemoteParticipant;
+    if (participant == null || participant.audioTrackPublications.isEmpty) {
+      return null;
+    }
+    return participant.audioTrackPublications.any(
+      (publication) => !publication.muted,
+    );
+  }
+
+  bool? get remoteCamOn {
+    final participant = _firstRemoteParticipant;
+    if (participant == null || participant.videoTrackPublications.isEmpty) {
+      return null;
+    }
+    return participant.videoTrackPublications.any(
+      (publication) => !publication.muted,
+    );
+  }
+
+  RemoteParticipant? get _firstRemoteParticipant {
+    final participants = _room?.remoteParticipants.values;
+    return participants == null || participants.isEmpty
+        ? null
+        : participants.first;
+  }
 
   /// Hay una grabación en curso en la sala (la ven las dos personas).
-  bool get isRecording => _phase == RecordingPhase.recording || (_room?.isRecording ?? false);
+  bool get isRecording =>
+      _phase == RecordingPhase.recording || (_room?.isRecording ?? false);
 
   /// Algún video de la otra persona, si ya llegó.
   VideoTrack? get remoteVideo {
@@ -75,7 +161,8 @@ class LiveKitCallService extends ChangeNotifier {
 
   bool get isNativeSupported =>
       !kIsWeb &&
-      (defaultTargetPlatform == TargetPlatform.android || defaultTargetPlatform == TargetPlatform.iOS);
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
 
   /// Cuelga la videollamada en curso (por ejemplo, cuando la otra persona ya terminó la llamada).
   void hangUp() => _closeScreen();
@@ -88,25 +175,43 @@ class LiveKitCallService extends ChangeNotifier {
   /// [onTerminated] (o [onInterrupted] si se cortó por un problema).
   Future<void> join({
     required String roomName,
+    required String requestId,
     required String displayName,
     required String userId,
+    String? profilePhotoBase64,
     required VoidCallback onTerminated,
     VoidCallback? onInterrupted,
   }) async {
     final navigator = appNavigatorKey.currentState;
-    if (navigator == null) throw Exception('No se pudo abrir la pantalla de llamada.');
+    if (navigator == null)
+      throw Exception('No se pudo abrir la pantalla de llamada.');
 
     _stopTimers();
     _roomName = roomName;
     _displayName = displayName;
+    _profilePhotoBase64 = profilePhotoBase64;
     _interrupted = false;
     _reconnecting = false;
+    _reconnectMessage = null;
     _micOn = true;
     _camOn = true;
+    _micNeedsRetry = false;
+    _camNeedsRetry = false;
+    _micChanging = false;
+    _camChanging = false;
+    _micFailed = false;
+    _camFailed = false;
+    _micDevices = null;
+    _camDevices = null;
+    _lastQuality = LinkQuality.unknown;
     _phase = RecordingPhase.idle;
     _egressId = null;
 
-    final creds = await LiveKitApi.fetchToken(roomName: roomName, displayName: displayName);
+    final creds = await LiveKitApi.fetchToken(
+      roomName: roomName,
+      requestId: requestId,
+      displayName: displayName,
+    );
 
     final room = Room(
       roomOptions: const RoomOptions(adaptiveStream: true, dynacast: true),
@@ -118,33 +223,48 @@ class LiveKitCallService extends ChangeNotifier {
 
     try {
       await room.connect(creds.url, creds.token);
+      final photo = profilePhotoBase64;
+      if (photo != null && photo.isNotEmpty) {
+        unawaited(
+          room.localParticipant
+                  ?.setMetadata(jsonEncode({'profilePhotoBase64': photo}))
+                  .catchError((Object error) {
+                    debugPrint(
+                      'LiveKit: no se pudo compartir la foto en esta llamada: $error',
+                    );
+                  }) ??
+              Future<void>.value(),
+        );
+      }
     } catch (e, st) {
       debugPrint('LiveKit: falló la conexión a ${creds.url}: $e\n$st');
       await _teardown();
       throw Exception('No se pudo conectar con LiveKit ($e).');
     }
 
-    // Si la cámara o el micrófono fallan (por ejemplo, en un emulador), la llamada sigue.
-    try {
-      await room.localParticipant?.setMicrophoneEnabled(true);
-    } catch (e, st) {
-      debugPrint('LiveKit: no se pudo abrir el micrófono: $e\n$st');
-      _micOn = false;
-      CallNotice.show('No se pudo abrir el micrófono.', vibrate: false);
+    // Si falla un dispositivo, la llamada sigue y se ofrecen reintentos (F6.12).
+    final micOk = await _openDevice(mic: true, delays: const []);
+    final camOk = await _openDevice(mic: false, delays: const []);
+    if (!micOk || !camOk) {
+      CallNotice.show(
+        !micOk && !camOk
+            ? 'No se pudo abrir el micrófono ni la cámara. Reintentando…'
+            : (!micOk
+                  ? 'No se pudo abrir el micrófono. Reintentando…'
+                  : 'No se pudo abrir la cámara. Reintentando…'),
+        vibrate: false,
+      );
+      unawaited(_retryFailedInBackground());
     }
-    try {
-      await room.localParticipant?.setCameraEnabled(true);
-    } catch (e, st) {
-      debugPrint('LiveKit: no se pudo abrir la cámara: $e\n$st');
-      _camOn = false;
-      CallNotice.show('No se pudo abrir la cámara.', vibrate: false);
-    }
+    unawaited(_watchDevices());
 
     _joinedAt = DateTime.now();
     _startBreakTimer();
 
     _closed = Completer<void>();
-    final route = MaterialPageRoute<void>(builder: (_) => LiveKitCallScreen(service: this));
+    final route = MaterialPageRoute<void>(
+      builder: (_) => LiveKitCallScreen(service: this),
+    );
     _route = route;
     navigator.push<void>(route).whenComplete(() {
       if (!(_closed?.isCompleted ?? true)) _closed!.complete();
@@ -169,24 +289,46 @@ class LiveKitCallService extends ChangeNotifier {
       // Si la otra persona se va y nadie vuelve en unos segundos, esta llamada también termina.
       ..on<ParticipantDisconnectedEvent>((_) {
         notifyListeners();
-        if (room.remoteParticipants.isEmpty) {
-          _aloneTimer?.cancel();
-          _aloneTimer = Timer(_aloneGrace, _closeScreen);
-        }
+        _startAloneTimerIfNeeded(room);
       })
       ..on<RoomReconnectingEvent>((_) {
+        _aloneTimer?.cancel();
         _reconnecting = true;
+        _reconnectMessage = 'Reconectando audio y video…';
+        notifyListeners();
+      })
+      ..on<RoomResumingEvent>((_) {
+        _aloneTimer?.cancel();
+        _reconnecting = true;
+        _reconnectMessage = 'Restableciendo la conexión…';
+        notifyListeners();
+      })
+      ..on<RoomAttemptReconnectEvent>((event) {
+        _aloneTimer?.cancel();
+        _reconnecting = true;
+        _reconnectMessage =
+            'Reconectando… (${event.attempt}/${event.maxAttemptsRetry})';
         notifyListeners();
       })
       ..on<RoomReconnectedEvent>((_) {
         _reconnecting = false;
+        _reconnectMessage = null;
         notifyListeners();
+        _startAloneTimerIfNeeded(room);
       })
       // Si se desconecta por algo distinto a colgar, la llamada queda "interrumpida" (RF35).
       ..on<RoomDisconnectedEvent>((event) {
-        if (event.reason != DisconnectReason.clientInitiated) _interrupted = true;
+        _reconnecting = false;
+        _reconnectMessage = null;
+        if (event.reason != DisconnectReason.clientInitiated)
+          _interrupted = true;
         _closeScreen();
       })
+      ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
+        if (event.participant is LocalParticipant) _onLocalQuality(linkQuality);
+        notifyListeners();
+      })
+      ..on<ParticipantMetadataUpdatedEvent>((_) => notifyListeners())
       ..on<DataReceivedEvent>(_onData)
       ..on<RoomRecordingStatusChanged>((event) {
         if (!event.activeRecording && _phase == RecordingPhase.recording) {
@@ -197,8 +339,53 @@ class LiveKitCallService extends ChangeNotifier {
       })
       ..on<TrackSubscribedEvent>((_) => notifyListeners())
       ..on<TrackUnsubscribedEvent>((_) => notifyListeners())
-      ..on<TrackMutedEvent>((_) => notifyListeners())
-      ..on<TrackUnmutedEvent>((_) => notifyListeners());
+      ..on<TrackMutedEvent>(_onTrackMuted)
+      ..on<TrackUnmutedEvent>(_onTrackUnmuted);
+  }
+
+  void _onTrackMuted(TrackMutedEvent event) {
+    _updateLocalTrackState(
+      event.participant,
+      event.publication.kind,
+      muted: true,
+    );
+  }
+
+  void _onTrackUnmuted(TrackUnmutedEvent event) {
+    _updateLocalTrackState(
+      event.participant,
+      event.publication.kind,
+      muted: false,
+    );
+  }
+
+  void _updateLocalTrackState(
+    Participant participant,
+    TrackType kind, {
+    required bool muted,
+  }) {
+    if (participant == _room?.localParticipant) {
+      switch (kind) {
+        case TrackType.AUDIO:
+          _micOn = !muted;
+          if (!muted) _micNeedsRetry = false;
+          break;
+        case TrackType.VIDEO:
+          _camOn = !muted;
+          if (!muted) _camNeedsRetry = false;
+          break;
+        case TrackType.DATA:
+          break;
+      }
+    }
+    notifyListeners();
+  }
+
+  void _startAloneTimerIfNeeded(Room room) {
+    if (room.remoteParticipants.isEmpty) {
+      _aloneTimer?.cancel();
+      _aloneTimer = Timer(_aloneGrace, _closeScreen);
+    }
   }
 
   /// Cierra la pantalla de llamada; `join` se encarga del resto.
@@ -212,9 +399,13 @@ class LiveKitCallService extends ChangeNotifier {
 
   Future<void> _teardown() async {
     _stopTimers();
+    await _deviceSub?.cancel();
+    _deviceSub = null;
     await _stopRecordingIfNeeded();
     final room = _room;
     _room = null;
+    _reconnecting = false;
+    _reconnectMessage = null;
     _phase = RecordingPhase.idle;
     _joinedAt = null;
     room?.removeListener(notifyListeners);
@@ -230,16 +421,197 @@ class LiveKitCallService extends ChangeNotifier {
   // Micrófono y cámara
   // ---------------------------------------------------------------------------
 
-  Future<void> toggleMic() async {
-    _micOn = !_micOn;
+  Future<bool> _openDevice({
+    required bool mic,
+    List<Duration> delays = kDeviceRetryDelays,
+  }) async {
+    final room = _room;
+    final success = await tryWithRetries(() async {
+      final local = _room?.localParticipant;
+      if (room == null || !identical(_room, room) || local == null) {
+        throw StateError('La llamada ya terminó.');
+      }
+      if (mic) {
+        await local.setMicrophoneEnabled(true);
+      } else {
+        await local.setCameraEnabled(true);
+      }
+    }, delays: delays);
+    if (room == null || !identical(_room, room)) return false;
+    if (mic) {
+      _micFailed = !success;
+      _micOn = success;
+      _micNeedsRetry = !success;
+    } else {
+      _camFailed = !success;
+      _camOn = success;
+      _camNeedsRetry = !success;
+    }
+    if (!success)
+      debugPrint(
+        'LiveKit: no se pudo abrir ${mic ? 'el micrófono' : 'la cámara'}.',
+      );
     notifyListeners();
-    await _room?.localParticipant?.setMicrophoneEnabled(_micOn);
+    return success;
+  }
+
+  Future<void> _retryFailedInBackground() async {
+    if (_micFailed && await _openDevice(mic: true)) {
+      CallNotice.show('El micrófono ya funciona.', vibrate: false);
+    }
+    if (_camFailed && await _openDevice(mic: false)) {
+      CallNotice.show('La cámara ya funciona.', vibrate: false);
+    }
+    if (_room != null && devicesNeedAttention) {
+      CallNotice.show(
+        'Algún dispositivo no abrió. Toca «Reintentar» en la pantalla.',
+        vibrate: false,
+      );
+    }
+  }
+
+  Future<void> retryDevices() async {
+    if (_micFailed) await _openDevice(mic: true, delays: const []);
+    if (_camFailed) await _openDevice(mic: false, delays: const []);
+    if (_room != null && !devicesNeedAttention) {
+      CallNotice.show('Cámara y micrófono funcionando.', vibrate: false);
+    }
+  }
+
+  Future<void> _watchDevices() async {
+    await _deviceSub?.cancel();
+    _deviceSub = null;
+    try {
+      _updateDevices(
+        await Hardware.instance.enumerateDevices(),
+        announce: false,
+      );
+      _deviceSub = Hardware.instance.onDeviceChange.stream.listen(
+        (devices) => _updateDevices(devices, announce: true),
+      );
+    } catch (e) {
+      debugPrint('LiveKit: no se pudieron revisar los dispositivos: $e');
+    }
+  }
+
+  void _updateDevices(List<MediaDevice> devices, {required bool announce}) {
+    if (_room == null) return;
+    final microphones = devices
+        .where((device) => device.kind == 'audioinput')
+        .length;
+    final cameras = devices
+        .where((device) => device.kind == 'videoinput')
+        .length;
+    if (announce) {
+      if (_micDevices != null && microphones < _micDevices!) {
+        CallNotice.show(
+          'Se desconectó un dispositivo de audio.',
+          vibrate: false,
+        );
+      }
+      if (_camDevices != null && cameras < _camDevices!) {
+        CallNotice.show('Se desconectó una cámara.', vibrate: false);
+      }
+    }
+    _micDevices = microphones;
+    _camDevices = cameras;
+    notifyListeners();
+  }
+
+  void _onLocalQuality(LinkQuality quality) {
+    if (isWeakLink(quality) && !isWeakLink(_lastQuality)) {
+      CallNotice.show(
+        'Tu conexión está débil. Si se corta, podrás volver a llamar.',
+        vibrate: false,
+      );
+    }
+    _lastQuality = quality;
+  }
+
+  Future<void> toggleMic() async {
+    await _setMicrophoneEnabled(!_micOn);
   }
 
   Future<void> toggleCamera() async {
-    _camOn = !_camOn;
-    notifyListeners();
-    await _room?.localParticipant?.setCameraEnabled(_camOn);
+    await _setCameraEnabled(!_camOn);
+  }
+
+  Future<void> retryMicrophone() async {
+    if (!_micNeedsRetry) return;
+    await _setMicrophoneEnabled(true);
+  }
+
+  Future<void> retryCamera() async {
+    if (!_camNeedsRetry) return;
+    await _setCameraEnabled(true);
+  }
+
+  Future<void> _setMicrophoneEnabled(bool enabled) async {
+    if (_micChanging) return;
+    final participant = _room?.localParticipant;
+    if (participant == null) {
+      CallNotice.show(
+        'La conexión aún no está lista para cambiar el micrófono.',
+        vibrate: false,
+      );
+      return;
+    }
+
+    _micChanging = true;
+    try {
+      await participant.setMicrophoneEnabled(enabled);
+      _micOn = enabled;
+      _micFailed = enabled ? false : _micFailed;
+      if (enabled) _micNeedsRetry = false;
+    } catch (e, st) {
+      debugPrint('LiveKit: no se pudo cambiar el micrófono: $e\n$st');
+      if (enabled) {
+        _micNeedsRetry = true;
+        _micFailed = true;
+      }
+      final action = enabled ? 'activar' : 'silenciar';
+      CallNotice.show(
+        'No se pudo $action el micrófono. Revisa el dispositivo.',
+        vibrate: false,
+      );
+    } finally {
+      _micChanging = false;
+      notifyListeners();
+    }
+  }
+
+  Future<void> _setCameraEnabled(bool enabled) async {
+    if (_camChanging) return;
+    final participant = _room?.localParticipant;
+    if (participant == null) {
+      CallNotice.show(
+        'La conexión aún no está lista para cambiar la cámara.',
+        vibrate: false,
+      );
+      return;
+    }
+
+    _camChanging = true;
+    try {
+      await participant.setCameraEnabled(enabled);
+      _camOn = enabled;
+      _camFailed = enabled ? false : _camFailed;
+      if (enabled) _camNeedsRetry = false;
+    } catch (e, st) {
+      debugPrint('LiveKit: no se pudo cambiar la cámara: $e\n$st');
+      if (enabled) {
+        _camNeedsRetry = true;
+        _camFailed = true;
+      }
+      final action = enabled ? 'activar' : 'apagar';
+      CallNotice.show(
+        'No se pudo $action la cámara. Revisa el dispositivo.',
+        vibrate: false,
+      );
+    } finally {
+      _camChanging = false;
+      notifyListeners();
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -257,7 +629,10 @@ class LiveKitCallService extends ChangeNotifier {
       final minutes = kBreakSuggestionAfter.inMinutes * timer.tick;
       final message = _breakMessage(minutes);
       CallNotice.show(message);
-      Future.delayed(const Duration(seconds: 4), () => CallNotice.show(message, vibrate: false));
+      Future.delayed(
+        const Duration(seconds: 4),
+        () => CallNotice.show(message, vibrate: false),
+      );
     });
   }
 
@@ -286,7 +661,10 @@ class LiveKitCallService extends ChangeNotifier {
   Future<void> requestRecording() async {
     if (_phase != RecordingPhase.idle) return;
     if (!hasRemote) {
-      CallNotice.show('Esperen a que la otra persona se conecte para poder grabar.', vibrate: false);
+      CallNotice.show(
+        'Esperen a que la otra persona se conecte para poder grabar.',
+        vibrate: false,
+      );
       return;
     }
     _phase = RecordingPhase.waitingAnswer;
@@ -353,7 +731,10 @@ class LiveKitCallService extends ChangeNotifier {
         if (_phase == RecordingPhase.waitingAnswer) {
           _phase = RecordingPhase.idle;
           notifyListeners();
-          CallNotice.show('La otra persona no aceptó grabar la llamada.', vibrate: false);
+          CallNotice.show(
+            'La otra persona no aceptó grabar la llamada.',
+            vibrate: false,
+          );
         }
       case 'rec_accept':
         if (_phase != RecordingPhase.waitingAnswer) return;
