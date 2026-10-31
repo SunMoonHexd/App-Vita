@@ -268,7 +268,13 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
                 padding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
                 child: request == null
                     ? const SizedBox.shrink()
-                    : _CodeCard(code: request.joinCode),
+                    : Column(
+                        children: [
+                          if (request.volunteerId != null)
+                            _MatchedVolunteerCard(user: VitaScope.of(context).userById(request.volunteerId!)),
+                          _CodeCard(code: request.joinCode),
+                        ],
+                      ),
               ),
             ),
             // Las acciones quedan siempre a la vista, aunque la pantalla sea pequeña.
@@ -322,6 +328,56 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
                 ),
               ),
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MatchedVolunteerCard extends StatelessWidget {
+  const _MatchedVolunteerCard({required this.user});
+  final VitaUser? user;
+
+  @override
+  Widget build(BuildContext context) {
+    final volunteer = user;
+    if (volunteer == null ||
+        volunteer.role != UserRole.volunteer ||
+        volunteer.status != AccountStatus.active ||
+        !volunteer.identityVerified) {
+      return const SizedBox.shrink();
+    }
+    final showPresentation = volunteer.volunteerPresentationConsent && volunteer.volunteerPresentationReviewed;
+    return Card(
+      margin: const EdgeInsets.only(bottom: 16),
+      child: Padding(
+        padding: const EdgeInsets.all(18),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              if (showPresentation) VitaAvatar(name: volunteer.displayName, size: 64, photoBase64: volunteer.volunteerPresentationPhoto),
+              if (showPresentation) const SizedBox(width: 14),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(volunteer.displayName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
+                const SizedBox(height: 4),
+                const Text('Identidad verificada por coordinación', style: TextStyle(color: VitaColors.success)),
+              ])),
+            ]),
+            if (showPresentation && volunteer.volunteerBio.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text(volunteer.volunteerBio),
+            ],
+            if (showPresentation && volunteer.volunteerInterests.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Intereses: ${volunteer.volunteerInterests}'),
+            ],
+            if (showPresentation && volunteer.volunteerExperience.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text('Voluntariado: ${volunteer.volunteerExperience}'),
+            ],
           ],
         ),
       ),

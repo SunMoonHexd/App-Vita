@@ -603,8 +603,23 @@ class VitaRepository extends ChangeNotifier {
           'acceptedAt': vitaIso(_now()),
           'acceptedTerms': true,
           'acceptedPrivacy': true,
+          'volunteerIdentityDocumentConsent': user.role == UserRole.volunteer,
         })
         .timeout(const Duration(seconds: 15));
+    if (user.role == UserRole.volunteer) {
+      await _db.collection('presentationConsents').doc(user.id).set({
+        'userId': user.id,
+        'authorized': user.volunteerPresentationConsent,
+        'consentVersion': kConsentVersion,
+        'updatedAt': vitaIso(_now()),
+      }).timeout(const Duration(seconds: 15));
+      await _db.collection('identityConsents').doc(user.id).set({
+        'userId': user.id,
+        'authorized': user.identityDocumentConsent,
+        'consentVersion': kConsentVersion,
+        'updatedAt': vitaIso(_now()),
+      }).timeout(const Duration(seconds: 15));
+    }
   }
 
   Future<AuthResult> registerElderly({
@@ -695,9 +710,19 @@ class VitaRepository extends ChangeNotifier {
     required bool consent,
     required bool conduct,
     required bool inductionDone,
+    required String presentationBio,
+    required String presentationInterests,
+    required String presentationExperience,
+    required bool presentationConsent,
+    required String idFrontBase64,
+    required String idBackBase64,
+    required bool identityDocumentConsent,
   }) async {
     if (!consent)
       return const AuthResult.error('Debes aceptar el tratamiento de datos.');
+    if (!identityDocumentConsent || idFrontBase64.isEmpty || idBackBase64.isEmpty) {
+      return const AuthResult.error('Debes autorizar el uso de la cédula y cargar el frente y reverso para que coordinación pueda verificar tu identidad.');
+    }
     if (!conduct || !inductionDone) {
       return const AuthResult.error(
         'Debes aceptar el código de conducta y completar la inducción.',
@@ -735,6 +760,14 @@ class VitaRepository extends ChangeNotifier {
       conductAccepted: true,
       inductionDone: true,
       createdAt: _now(),
+      volunteerBio: presentationBio.trim(),
+      volunteerInterests: presentationInterests.trim(),
+      volunteerExperience: presentationExperience.trim(),
+      volunteerPresentationConsent: presentationConsent,
+      idFrontBase64: idFrontBase64,
+      idBackBase64: idBackBase64,
+      identityDocumentConsent: true,
+      idDocumentsUploadedAt: _now(),
     );
     try {
       await _writeNewUser(user);
@@ -1046,13 +1079,128 @@ class VitaRepository extends ChangeNotifier {
     await _commit();
   }
 
+  Future<void> updateVolunteerPresentation({
+    required String bio,
+    required String interests,
+    required String experience,
+    required bool consent,
+  }) async {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.volunteer) return;
+    _replaceUser(user.copyWith(
+      volunteerBio: bio.trim(),
+      volunteerInterests: interests.trim(),
+      volunteerExperience: experience.trim(),
+      volunteerPresentationConsent: consent,
+      volunteerPresentationReviewed: false,
+      clearVolunteerPresentationPhoto: true,
+    ));
+    await _db.collection('presentationConsents').doc(user.id).set({
+      'userId': user.id,
+      'authorized': consent,
+      'consentVersion': kConsentVersion,
+      'updatedAt': vitaIso(_now()),
+    });
+    await _commit();
+  }
+
+  Future<void> reviewVolunteerPresentation(String userId, {required bool approve}) async {
+    final i = _indexOf(userId);
+    if (i < 0 || _users[i].role != UserRole.volunteer) return;
+    final user = _users[i];
+    _users[i] = user.copyWith(
+      volunteerPresentationReviewed: approve,
+      volunteerPresentationPhoto: approve && user.volunteerPresentationConsent ? user.photoBase64 : null,
+      clearVolunteerPresentationPhoto: !approve || !user.volunteerPresentationConsent,
+    );
+    await _commit();
+    unawaited(_audit(approve ? 'volunteer_profile_approved' : 'volunteer_profile_rejected', targetId: userId));
+  }
+
+  Future<void> saveVolunteerIdentityDocuments({required String front, required String back}) async {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.volunteer) return;
+    if (front.isEmpty || back.isEmpty) throw Exception('Carga el frente y el reverso de la cédula.');
+    _replaceUser(user.copyWith(
+      idFrontBase64: front,
+      idBackBase64: back,
+      identityVerified: false,
+      identityDocumentConsent: true,
+      idDocumentsUploadedAt: _now(),
+      clearIdentityVerification: true,
+    ));
+    await _db.collection('identityConsents').doc(user.id).set({
+      'userId': user.id,
+      'authorized': true,
+      'consentVersion': kConsentVersion,
+      'updatedAt': vitaIso(_now()),
+    });
+    await _commit();
+  }
+
+  Future<void> withdrawVolunteerIdentityConsent() async {
+    final user = currentUser;
+    if (user == null || user.role != UserRole.volunteer) return;
+    _replaceUser(user.copyWith(
+      clearIdFront: true,
+      clearIdBack: true,
+      identityDocumentConsent: false,
+      identityVerified: false,
+      clearIdDocumentsUploadedAt: true,
+      clearIdentityVerification: true,
+      clearDocumentId: true,
+    ));
+    await _db.collection('identityConsents').doc(user.id).set({
+      'userId': user.id,
+      'authorized': false,
+      'consentVersion': kConsentVersion,
+      'updatedAt': vitaIso(_now()),
+    });
+    await _commit();
+  }
+
+  Future<void> verifyVolunteerIdentity(String userId) async {
+    final i = _indexOf(userId);
+    if (i < 0 || _users[i].role != UserRole.volunteer) return;
+    final user = _users[i];
+    if (!user.identityDocumentConsent) {
+      throw Exception('El voluntario no autorizó el tratamiento de la cédula.');
+    }
+    if (user.idFrontBase64 == null || user.idBackBase64 == null) {
+      throw Exception('El voluntario debe cargar el frente y el reverso de la cédula.');
+    }
+    final coordinator = currentUser;
+    final verifiedUser = user.copyWith(
+      clearIdFront: true,
+      clearIdBack: true,
+      clearIdDocumentsUploadedAt: true,
+      clearDocumentId: true,
+      identityVerified: true,
+      identityVerifiedAt: _now(),
+      identityVerifiedBy: coordinator?.id,
+    );
+    // Borra las imágenes del documento privado antes de publicar la marca de verificación.
+    await _db.collection('private').doc(user.id).set(
+      _privateJson(verifiedUser),
+      SetOptions(merge: true),
+    );
+    _users[i] = verifiedUser;
+    await _commit();
+    unawaited(_audit('volunteer_identity_verified', targetId: userId));
+  }
+
   /// Guarda la foto de perfil de quien tiene la sesión abierta (o la quita si [photoBase64] es
   /// null). Va en `private/{uid}`, así que solo la ven esa persona y coordinación.
   Future<void> setProfilePhoto(String? photoBase64) async {
     final user = currentUser;
     if (user == null) return;
     _replaceUser(
-      user.copyWith(photoBase64: photoBase64, clearPhoto: photoBase64 == null),
+      user.copyWith(
+        photoBase64: photoBase64,
+        clearPhoto: photoBase64 == null,
+        volunteerPresentationReviewed: false,
+        clearVolunteerPresentationPhoto: true,
+      ),
     );
     await _commit();
   }
@@ -2153,6 +2301,13 @@ class VitaRepository extends ChangeNotifier {
     'lastSeenAt': u.lastSeenAt == null ? null : vitaIso(u.lastSeenAt!),
     'emailVerified': u.emailVerified,
     'createdAt': u.createdAt == null ? null : vitaIso(u.createdAt!),
+    'volunteerPresentationConsent': u.volunteerPresentationConsent,
+    'volunteerPresentationReviewed': u.volunteerPresentationReviewed,
+    'identityVerified': u.identityVerified,
+    'volunteerBio': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerBio : null,
+    'volunteerInterests': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerInterests : null,
+    'volunteerExperience': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerExperience : null,
+    'volunteerPresentationPhoto': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerPresentationPhoto : null,
   };
 
   Map<String, dynamic> _privateJson(VitaUser u) => {
@@ -2165,6 +2320,15 @@ class VitaRepository extends ChangeNotifier {
     'alternateName': u.alternateName,
     'alternatePhone': u.alternatePhone,
     'photoBase64': u.photoBase64,
+    'volunteerBio': u.volunteerBio,
+    'volunteerInterests': u.volunteerInterests,
+    'volunteerExperience': u.volunteerExperience,
+    'idFrontBase64': u.idFrontBase64,
+    'idBackBase64': u.idBackBase64,
+    'identityDocumentConsent': u.identityDocumentConsent,
+    'idDocumentsUploadedAt': u.idDocumentsUploadedAt == null ? null : vitaIso(u.idDocumentsUploadedAt!),
+    'identityVerifiedAt': u.identityVerifiedAt == null ? null : vitaIso(u.identityVerifiedAt!),
+    'identityVerifiedBy': u.identityVerifiedBy,
   };
 
   Future<void> _commit() async {

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
@@ -16,6 +18,8 @@ class CoordinatorHomeView extends StatelessWidget {
   Widget build(BuildContext context) {
     final repo = VitaScope.of(context);
     final pending = repo.users.where((u) => u.role == UserRole.volunteer && u.status == AccountStatus.pending).toList();
+    final presentationReviews = repo.users.where((u) => u.role == UserRole.volunteer && u.volunteerPresentationConsent && !u.volunteerPresentationReviewed && u.status != AccountStatus.blocked).toList();
+    final identityReviews = repo.users.where((u) => u.role == UserRole.volunteer && u.status == AccountStatus.active && !u.identityVerified && u.idFrontBase64 != null && u.idBackBase64 != null).toList();
     final avg = repo.averageDuration;
 
     return VitaPage(
@@ -83,6 +87,14 @@ class CoordinatorHomeView extends StatelessWidget {
                 children: [
                   // RF3: solo se puede aprobar con el correo verificado.
                   IconButton(
+                    tooltip: user.identityVerified ? 'Cédula verificada' : 'Revisar cédula',
+                    icon: Icon(user.identityVerified ? Icons.verified_user : Icons.badge_outlined),
+                    color: user.identityVerified ? VitaColors.success : context.vita.muted,
+                    onPressed: user.idFrontBase64 == null || user.idBackBase64 == null
+                        ? null
+                        : () => _reviewIdentityDocuments(context, user),
+                  ),
+                  IconButton(
                     icon: Icon(
                       Icons.check,
                       color: canApproveVolunteer(user) ? context.vita.accentBlue : context.vita.muted,
@@ -94,6 +106,40 @@ class CoordinatorHomeView extends StatelessWidget {
                     onPressed: () => repo.approveVolunteer(user.id, approve: false),
                   ),
                 ],
+              ),
+            ),
+          const Divider(),
+          const Text('Cédulas pendientes de revisión', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          if (identityReviews.isEmpty) const Text('No hay cédulas de voluntarios activos pendientes.'),
+          for (final user in identityReviews)
+            ListTile(
+              title: Text(user.displayName),
+              subtitle: Text('${user.email ?? ''} · documento ${user.documentId ?? 'sin dato'}'),
+              trailing: TextButton.icon(
+                onPressed: () => _reviewIdentityDocuments(context, user),
+                icon: const Icon(Icons.badge_outlined),
+                label: const Text('Revisar'),
+              ),
+            ),
+          const Divider(),
+          const Text('Presentaciones para revisar', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          const Text('Solo se publican si el voluntario autorizó y coordinación aprueba el contenido.'),
+          if (presentationReviews.isEmpty) const Text('No hay presentaciones pendientes.'),
+          for (final user in presentationReviews)
+            Card(
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Text(user.displayName, style: const TextStyle(fontWeight: FontWeight.w800)),
+                  if (user.volunteerBio.isNotEmpty) Text(user.volunteerBio),
+                  if (user.volunteerInterests.isNotEmpty) Text('Intereses: ${user.volunteerInterests}'),
+                  if (user.volunteerExperience.isNotEmpty) Text('Experiencia: ${user.volunteerExperience}'),
+                  Text(user.photoBase64 == null ? 'Sin foto' : 'Incluye foto para publicación'),
+                  Align(alignment: Alignment.centerRight, child: Wrap(children: [
+                    TextButton(onPressed: () => repo.reviewVolunteerPresentation(user.id, approve: false), child: const Text('Rechazar')),
+                    FilledButton(onPressed: () => repo.reviewVolunteerPresentation(user.id, approve: true), child: const Text('Aprobar publicación')),
+                  ])),
+                ]),
               ),
             ),
           const Divider(),
@@ -234,6 +280,41 @@ class CoordinatorHomeView extends StatelessWidget {
       if (context.mounted) {
         await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
       }
+    }
+  }
+}
+
+Future<void> _reviewIdentityDocuments(BuildContext context, VitaUser user) async {
+  final front = user.idFrontBase64;
+  final back = user.idBackBase64;
+  if (front == null || back == null) return;
+  final verified = await showDialog<bool>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      title: Text('Cédula de ${user.displayName}'),
+      content: SingleChildScrollView(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Text('Documento privado. Confirma que coincide con los datos del registro.'),
+          const SizedBox(height: 12),
+          const Text('Frente'),
+          Image.memory(base64Decode(front), fit: BoxFit.contain),
+          const SizedBox(height: 8),
+          const Text('Reverso'),
+          Image.memory(base64Decode(back), fit: BoxFit.contain),
+        ]),
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.pop(dialogContext, false), child: const Text('Cerrar')),
+        FilledButton(onPressed: () => Navigator.pop(dialogContext, true), child: const Text('Marcar identidad verificada')),
+      ],
+    ),
+  );
+  if (verified == true && context.mounted) {
+    try {
+      await VitaScope.of(context).verifyVolunteerIdentity(user.id);
+      if (context.mounted) await showVitaMessage(context, 'Identidad verificada. Ya puedes aprobar la cuenta del voluntario.');
+    } catch (e) {
+      if (context.mounted) await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
     }
   }
 }
@@ -536,5 +617,10 @@ String _pendingDetails(VitaUser user) {
       ? 'Sin fecha de nacimiento'
       : 'Nació el ${birth.day}/${birth.month}/${birth.year} (${ageOn(birth, DateTime.now())} años)';
   final emailText = user.emailVerified ? 'Correo verificado' : 'Correo sin verificar: no se puede aprobar todavía';
-  return '${user.email} · ${user.documentId}\n$birthText\n$emailText';
+  final identityText = user.identityVerified
+      ? 'Cédula revisada: identidad verificada'
+      : (user.idFrontBase64 != null && user.idBackBase64 != null
+          ? 'Cédula cargada: falta revisión de coordinación'
+          : 'Falta frente o reverso de la cédula');
+  return '${user.email} · ${user.documentId}\n$birthText\n$emailText\n$identityText';
 }

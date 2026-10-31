@@ -38,6 +38,7 @@ List<VitaUser> selectVolunteers({
   final list = users.where((u) {
     if (u.role != UserRole.volunteer) return false;
     if (u.status != AccountStatus.active) return false;
+    if (!u.identityVerified) return false;
     if (!u.available) return false;
     if (requireRecentPresence) {
       final seen = u.lastSeenAt;

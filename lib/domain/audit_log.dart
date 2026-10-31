@@ -44,6 +44,9 @@ class AuditEntry {
 const Map<String, String> kAuditLabels = {
   'volunteer_approved': 'Aprobó a un voluntario',
   'volunteer_rejected': 'Rechazó a un voluntario',
+  'volunteer_profile_approved': 'Aprobó la presentación de un voluntario',
+  'volunteer_profile_rejected': 'Rechazó la presentación de un voluntario',
+  'volunteer_identity_verified': 'Verificó la identidad de un voluntario',
   'account_suspended': 'Suspendió una cuenta',
   'account_blocked': 'Bloqueó una cuenta',
   'account_reactivated': 'Reactivó una cuenta',
