@@ -41,6 +41,19 @@ class VitaUser {
     this.createdAt,
     this.emailVerified = false,
     this.photoBase64,
+    this.volunteerBio = '',
+    this.volunteerInterests = '',
+    this.volunteerExperience = '',
+    this.volunteerPresentationConsent = false,
+    this.volunteerPresentationReviewed = false,
+    this.volunteerPresentationPhoto,
+    this.idFrontBase64,
+    this.idBackBase64,
+    this.identityVerified = false,
+    this.identityDocumentConsent = false,
+    this.idDocumentsUploadedAt,
+    this.identityVerifiedAt,
+    this.identityVerifiedBy,
   });
 
   final String id;
@@ -75,11 +88,25 @@ class VitaUser {
   /// Foto de perfil (JPEG reducido, en base64). Es opcional y vive en el documento privado:
   /// solo la ve la propia persona y coordinación.
   final String? photoBase64;
+  final String volunteerBio;
+  final String volunteerInterests;
+  final String volunteerExperience;
+  final bool volunteerPresentationConsent;
+  final bool volunteerPresentationReviewed;
+  final String? volunteerPresentationPhoto;
+  final String? idFrontBase64;
+  final String? idBackBase64;
+  final bool identityVerified;
+  final bool identityDocumentConsent;
+  final DateTime? idDocumentsUploadedAt;
+  final DateTime? identityVerifiedAt;
+  final String? identityVerifiedBy;
 
   VitaUser copyWith({
     AccountStatus? status,
     String? displayName,
     String? phone,
+    String? documentId,
     String? familyName,
     String? familyPhone,
     String? alternateName,
@@ -98,6 +125,25 @@ class VitaUser {
     String? photoBase64,
     bool clearPhoto = false,
     bool clearLock = false,
+    String? volunteerBio,
+    String? volunteerInterests,
+    String? volunteerExperience,
+    bool? volunteerPresentationConsent,
+    bool? volunteerPresentationReviewed,
+    String? volunteerPresentationPhoto,
+    bool clearVolunteerPresentationPhoto = false,
+    String? idFrontBase64,
+    String? idBackBase64,
+    bool? identityVerified,
+    bool? identityDocumentConsent,
+    DateTime? idDocumentsUploadedAt,
+    DateTime? identityVerifiedAt,
+    String? identityVerifiedBy,
+    bool clearIdFront = false,
+    bool clearIdBack = false,
+    bool clearIdDocumentsUploadedAt = false,
+    bool clearIdentityVerification = false,
+    bool clearDocumentId = false,
   }) {
     return VitaUser(
       id: id,
@@ -106,7 +152,7 @@ class VitaUser {
       status: status ?? this.status,
       phone: phone ?? this.phone,
       email: email,
-      documentId: documentId,
+      documentId: clearDocumentId ? null : (documentId ?? this.documentId),
       secretHash: secretHash ?? this.secretHash,
       birthDate: birthDate,
       familyName: familyName ?? this.familyName,
@@ -125,6 +171,19 @@ class VitaUser {
       emailVerified: emailVerified ?? this.emailVerified,
       photoBase64: clearPhoto ? null : (photoBase64 ?? this.photoBase64),
       createdAt: createdAt,
+      volunteerBio: volunteerBio ?? this.volunteerBio,
+      volunteerInterests: volunteerInterests ?? this.volunteerInterests,
+      volunteerExperience: volunteerExperience ?? this.volunteerExperience,
+      volunteerPresentationConsent: volunteerPresentationConsent ?? this.volunteerPresentationConsent,
+      volunteerPresentationReviewed: volunteerPresentationReviewed ?? this.volunteerPresentationReviewed,
+      volunteerPresentationPhoto: clearVolunteerPresentationPhoto ? null : (volunteerPresentationPhoto ?? this.volunteerPresentationPhoto),
+      idFrontBase64: clearIdFront ? null : (idFrontBase64 ?? this.idFrontBase64),
+      idBackBase64: clearIdBack ? null : (idBackBase64 ?? this.idBackBase64),
+      identityVerified: identityVerified ?? this.identityVerified,
+      identityDocumentConsent: identityDocumentConsent ?? this.identityDocumentConsent,
+      idDocumentsUploadedAt: clearIdDocumentsUploadedAt ? null : (idDocumentsUploadedAt ?? this.idDocumentsUploadedAt),
+      identityVerifiedAt: clearIdentityVerification ? null : (identityVerifiedAt ?? this.identityVerifiedAt),
+      identityVerifiedBy: clearIdentityVerification ? null : (identityVerifiedBy ?? this.identityVerifiedBy),
     );
   }
 
@@ -153,6 +212,19 @@ class VitaUser {
     'lastSeenAt': vitaIsoN(lastSeenAt),
     'emailVerified': emailVerified,
     'photoBase64': photoBase64,
+    'volunteerBio': volunteerBio,
+    'volunteerInterests': volunteerInterests,
+    'volunteerExperience': volunteerExperience,
+    'volunteerPresentationConsent': volunteerPresentationConsent,
+    'volunteerPresentationReviewed': volunteerPresentationReviewed,
+    'volunteerPresentationPhoto': volunteerPresentationPhoto,
+    'idFrontBase64': idFrontBase64,
+    'idBackBase64': idBackBase64,
+    'identityVerified': identityVerified,
+    'identityDocumentConsent': identityDocumentConsent,
+    'idDocumentsUploadedAt': vitaIsoN(idDocumentsUploadedAt),
+    'identityVerifiedAt': vitaIsoN(identityVerifiedAt),
+    'identityVerifiedBy': identityVerifiedBy,
     'createdAt': vitaIsoN(createdAt),
   };
 
@@ -190,6 +262,19 @@ class VitaUser {
           : DateTime.parse(json['lastSeenAt'] as String),
       emailVerified: json['emailVerified'] as bool? ?? false,
       photoBase64: json['photoBase64'] as String?,
+      volunteerBio: json['volunteerBio'] as String? ?? '',
+      volunteerInterests: json['volunteerInterests'] as String? ?? '',
+      volunteerExperience: json['volunteerExperience'] as String? ?? '',
+      volunteerPresentationConsent: json['volunteerPresentationConsent'] as bool? ?? false,
+      volunteerPresentationReviewed: json['volunteerPresentationReviewed'] as bool? ?? false,
+      volunteerPresentationPhoto: json['volunteerPresentationPhoto'] as String?,
+      idFrontBase64: json['idFrontBase64'] as String?,
+      idBackBase64: json['idBackBase64'] as String?,
+      identityVerified: json['identityVerified'] as bool? ?? false,
+      identityDocumentConsent: json['identityDocumentConsent'] as bool? ?? false,
+      idDocumentsUploadedAt: json['idDocumentsUploadedAt'] == null ? null : DateTime.parse(json['idDocumentsUploadedAt'] as String),
+      identityVerifiedAt: json['identityVerifiedAt'] == null ? null : DateTime.parse(json['identityVerifiedAt'] as String),
+      identityVerifiedBy: json['identityVerifiedBy'] as String?,
       createdAt: json['createdAt'] == null
           ? null
           : DateTime.parse(json['createdAt'] as String),

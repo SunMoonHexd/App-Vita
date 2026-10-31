@@ -79,6 +79,60 @@ async function patchFirestoreDocument(env, accessToken, documentPath, fields) {
   if (!response.ok) throw new Error('No se pudo actualizar el registro de notificación.');
 }
 
+async function purgeExpiredIdentityDocuments(env) {
+  const accessToken = await getGoogleAccessToken(env);
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  const queryUrl = `https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents:runQuery`;
+  const response = await fetch(queryUrl, {
+    method: 'POST',
+    headers: {
+      authorization: `Bearer ${accessToken}`,
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      structuredQuery: {
+        from: [{ collectionId: 'private' }],
+        where: {
+          fieldFilter: {
+            field: { fieldPath: 'idDocumentsUploadedAt' },
+            op: 'LESS_THAN',
+            value: { stringValue: cutoff },
+          },
+        },
+        limit: 500,
+      },
+    }),
+  });
+  if (!response.ok) throw new Error('No se pudo buscar cédulas vencidas en Firestore.');
+  const rows = await response.json();
+  const expired = rows.map((row) => row.document).filter((doc) =>
+    doc?.fields?.idFrontBase64?.stringValue || doc?.fields?.idBackBase64?.stringValue,
+  );
+  const deletedAt = new Date().toISOString();
+  for (let i = 0; i < expired.length; i += 20) {
+    await Promise.all(expired.slice(i, i + 20).map(async (document) => {
+      const documentId = document.name.split('/').at(-1);
+      const path = `private/${documentId}`;
+      const url = new URL(`https://firestore.googleapis.com/v1/projects/${env.FIREBASE_PROJECT_ID}/databases/(default)/documents/${path}`);
+      for (const field of ['idFrontBase64', 'idBackBase64', 'documentId', 'idDocumentsUploadedAt', 'identityDocumentsDeletedAt']) {
+        url.searchParams.append('updateMask.fieldPaths', field);
+      }
+      const deleteResponse = await fetch(url, {
+        method: 'PATCH',
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({
+          fields: { identityDocumentsDeletedAt: { timestampValue: deletedAt } },
+        }),
+      });
+      if (!deleteResponse.ok) throw new Error('No se pudo eliminar una cédula vencida de Firestore.');
+    }));
+  }
+  return expired.length;
+}
+
 const stringField = (document, name) => document?.fields?.[name]?.stringValue;
 const boolField = (document, name) => document?.fields?.[name]?.booleanValue === true;
 const integerField = (document, name) => Number(document?.fields?.[name]?.integerValue || 0);
@@ -213,6 +267,11 @@ function egressClient(env) {
 }
 
 export default {
+  async scheduled(_controller, env) {
+    const deleted = await purgeExpiredIdentityDocuments(env);
+    console.log(`Se eliminaron ${deleted} documentos de identidad vencidos.`);
+  },
+
   async fetch(request, env) {
     if (request.method !== 'POST') return json({ error: 'Método no permitido' }, 405);
     const path = new URL(request.url).pathname;

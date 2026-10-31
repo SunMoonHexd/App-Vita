@@ -38,6 +38,13 @@ class LegalTextView extends StatelessWidget {
 // Resumen en lenguaje claro para la aplicación. Validar datos de contacto,
 // acceso y conservación de grabaciones con la persona responsable antes de publicar.
 const privacySections = [
+  LegalSection(
+    'Responsable del tratamiento',
+    'Responsable: [NOMBRE O RAZÓN SOCIAL DEL RESPONSABLE DE VITA]. NIT/identificación: [NIT]. '
+        'Domicilio: [CIUDAD Y DIRECCIÓN]. Canal para consultas y reclamos sobre datos personales: '
+        '[CORREO ELECTRÓNICO Y/O TELÉFONO]. Estos datos deben completarse y mantenerse actualizados '
+        'antes de publicar la aplicación.',
+  ),
   LegalSection('Tu autorización', consentText),
   LegalSection(
     'Qué información usamos',
@@ -50,6 +57,32 @@ const privacySections = [
     'Para qué usamos tus datos',
     'Los usamos para crear y proteger tu cuenta, encontrar a una persona disponible, conectar llamadas, '
         'enviar avisos, atender reportes y mejorar la seguridad y el funcionamiento de VITA.',
+  ),
+  LegalSection(
+    'Presentación del voluntario',
+    'Los voluntarios pueden autorizar por separado que VITA muestre a la persona mayor asignada su nombre, '
+        'foto de perfil, presentación, intereses y experiencia de voluntariado. La autorización es '
+        'voluntaria, específica y revocable. Coordinación revisa el contenido antes de publicarlo; si el '
+        'voluntario cambia la presentación o retira el permiso, se oculta hasta una nueva revisión o deja '
+        de mostrarse. Sin autorización no se publica esta presentación.',
+  ),
+  LegalSection(
+    'Datos sensibles y datos de otras personas',
+    'VITA no solicita datos de salud para prestar el acompañamiento social. Si decides compartir '
+        'información sensible durante una conversación, hazlo solo si lo consideras necesario. Los '
+        'contactos de apoyo que registres también son datos personales: debes contarles que los '
+        'incluiste y procurar que sus datos sean correctos. No ingreses información de otra persona '
+        'sin autorización o sin una base legal aplicable.',
+  ),
+  LegalSection(
+    'Verificación de identidad de voluntarios',
+    'Con autorización del voluntario, VITA recopila imágenes del frente y reverso de su cédula para que '
+        'coordinación verifique su identidad antes de aprobar la cuenta. Las imágenes se guardan en el '
+        'perfil privado y solo son accesibles para el voluntario y coordinación. No se muestran ni se '
+        'entregan al adulto mayor; a este solo se le informa si coordinación marcó la identidad como '
+        'verificada. Cuando coordinación verifica la identidad, VITA elimina las imágenes y el número '
+        'de documento, y conserva únicamente el resultado, la fecha y quién realizó la revisión. Si el '
+        'trámite no se completa, las imágenes y el número se eliminan automáticamente después de 30 días.',
   ),
   LegalSection(
     'Llamadas y grabaciones',
@@ -65,20 +98,60 @@ const privacySections = [
         'de Supabase para los archivos de grabación. Un servicio de servidor coordina estas funciones.',
   ),
   LegalSection(
+    'Transferencias y conservación',
+    'Algunos proveedores tecnológicos pueden procesar o alojar información fuera de Colombia. El '
+        'responsable debe verificar las condiciones legales aplicables a la transmisión o transferencia '
+        'internacional de datos y mantener acuerdos y salvaguardas adecuados. Conservamos los datos '
+        'durante el tiempo necesario para los fines informados y para atender obligaciones legales, '
+        'reclamaciones o incidentes de seguridad; después se eliminan o anonimizan cuando corresponda. '
+        'Las grabaciones requieren reglas específicas de acceso y plazo que deben definirse antes de '
+        'activar esa función con usuarios reales.',
+  ),
+  LegalSection(
     'Tus derechos y cómo solicitar cambios',
-    'Puedes editar tus datos desde tu perfil o solicitar la eliminación de tu cuenta desde allí. También '
-        'puedes pedir información sobre tus datos y solicitar su corrección o revocar tu autorización al '
-        'responsable de VITA. Antes de publicar, el equipo debe indicar claramente el nombre y un canal de '
-        'contacto de esa persona u organización.',
+    'Puedes conocer, actualizar y rectificar tus datos; solicitar prueba de la autorización, información '
+        'sobre el uso, y la supresión de datos o revocatoria de la autorización cuando proceda. Presenta '
+        'consultas o reclamos en el canal del responsable indicado arriba. Incluye tu nombre, medio para '
+        'recibir respuesta y una descripción de lo que solicitas. Las consultas se responden dentro de '
+        '10 días hábiles y los reclamos dentro de 15 días hábiles, con las prórrogas y avisos previstos '
+        'por la ley. Puedes acudir a la Superintendencia de Industria y Comercio después de agotar el '
+        'trámite ante el responsable o encargado.',
+  ),
+  LegalSection(
+    'Seguridad y cambios',
+    'Aplicamos medidas razonables para proteger la información, aunque ningún medio de transmisión o '
+        'almacenamiento puede garantizar seguridad absoluta. Si actualizamos esta política, publicaremos '
+        'la nueva versión en VITA e informaremos los cambios relevantes; cuando la ley lo exija, '
+        'solicitaremos una nueva autorización.',
   ),
 ];
 
 const termsSections = [
   LegalSection(
+    'Quién ofrece el servicio',
+    'VITA es operada por [NOMBRE O RAZÓN SOCIAL], identificado con [NIT/IDENTIFICACIÓN], con domicilio '
+        'en [CIUDAD, COLOMBIA]. Contacto: [CORREO Y TELÉFONO]. Completa estos datos antes de ofrecer '
+        'públicamente el servicio.',
+  ),
+  LegalSection(
     'Qué es VITA',
     'VITA conecta a personas adultas mayores con voluntarios para conversar y recibir compañía por llamada '
         'de voz o videollamada. El servicio es de acompañamiento social: no ofrece atención médica ni '
         'psicológica profesional.',
+  ),
+  LegalSection(
+    'Aceptación, elegibilidad y cuenta',
+    'Al crear una cuenta o usar VITA aceptas estos términos y la política de privacidad. El registro '
+        'está destinado a personas adultas. Debes entregar información veraz, mantener seguro tu PIN y '
+        'avisarnos si sospechas que alguien accedió a tu cuenta. No uses la cuenta de otra persona ni '
+        'intentes acceder a sistemas o información sin autorización.',
+  ),
+  LegalSection(
+    'Alcance del servicio',
+    'VITA facilita el contacto entre personas para acompañamiento social. No presta ni sustituye servicios '
+        'de salud, psicología, trabajo social, asesoría jurídica o atención de emergencias; tampoco '
+        'garantiza disponibilidad, compatibilidad, continuidad o respuesta inmediata. La app puede '
+        interrumpirse por mantenimiento, conectividad o fallas de terceros.',
   ),
   LegalSection(
     'La app no es para emergencias',
@@ -97,6 +170,14 @@ const termsSections = [
         'por fuera de VITA.',
   ),
   LegalSection(
+    'Conducta de voluntarios',
+    'Quien participa como voluntario debe respetar la privacidad y autonomía de la otra persona, limitar '
+        'la interacción al acompañamiento social, seguir las pautas de seguridad de VITA y reportar '
+        'situaciones de riesgo por los canales habilitados. No debe solicitar dinero, contraseñas, códigos, '
+        regalos ni datos financieros, ofrecer diagnósticos o tratamientos, ni iniciar relaciones de '
+        dependencia o contacto fuera de la plataforma.',
+  ),
+  LegalSection(
     'Llamadas y grabación',
     'Puedes terminar la llamada cuando quieras y reportar algo que te preocupe. Una llamada solo se graba '
         'si una persona lo solicita durante la llamada y ambas aceptan. Ambas ven el indicador y cualquiera '
@@ -106,6 +187,21 @@ const termsSections = [
     'Si algo te preocupa',
     'Cuelga si no te sientes cómodo y usa la opción de reportar en la aplicación. Si se trata de una '
         'emergencia, llama al 123; no esperes respuesta de VITA.',
+  ),
+  LegalSection(
+    'Reportes y medidas de seguridad',
+    'VITA puede revisar reportes de seguridad y, cuando sea razonable y necesario, limitar temporalmente '
+        'o cerrar cuentas que incumplan estos términos o pongan a alguien en riesgo. Procuraremos permitir '
+        'que expliques lo ocurrido por el canal de contacto indicado por el operador. Ante peligro '
+        'inmediato, contacta al 123 y a tus contactos de confianza; VITA no reemplaza a las autoridades.',
+  ),
+  LegalSection(
+    'Disponibilidad, cambios y ley aplicable',
+    'Podemos actualizar estos términos para reflejar cambios del servicio o de la ley. Informaremos los '
+        'cambios relevantes en la app; si afectan materialmente tus derechos o requieren aceptación, te '
+        'pediremos aceptarlos para continuar. Estos términos se interpretan conforme a las leyes de la '
+        'República de Colombia y no limitan los derechos irrenunciables que la ley reconoce a las personas '
+        'usuarias o consumidoras.',
   ),
 ];
 

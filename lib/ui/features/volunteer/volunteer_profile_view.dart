@@ -10,6 +10,8 @@ import 'package:vita_app/ui/features/shared/legal_text_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_actions.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_edit_profile_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_format.dart';
+import 'package:vita_app/ui/features/volunteer/volunteer_presentation_view.dart';
+import 'package:vita_app/ui/features/volunteer/volunteer_identity_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_schedule_view.dart';
 
 String _maskDocument(String? value) {
@@ -119,6 +121,18 @@ class VolunteerProfileView extends StatelessWidget {
                         emoji: '✏️',
                         label: 'Editar mis datos',
                         onTap: () => _open(context, const VolunteerEditProfileView()),
+                      ),
+                      const Divider(height: 1),
+                      VitaMenuRow(
+                        emoji: '👋',
+                        label: 'Mi presentación para adultos mayores',
+                        onTap: () => _open(context, const VolunteerPresentationView()),
+                      ),
+                      const Divider(height: 1),
+                      VitaMenuRow(
+                        emoji: '🪪',
+                        label: user.identityVerified ? 'Actualizar cédula verificada' : 'Cargar o actualizar mi cédula',
+                        onTap: () => _open(context, const VolunteerIdentityView()),
                       ),
                       const Divider(height: 1),
                       VitaMenuRow(

@@ -46,9 +46,16 @@ service cloud.firestore {
         (isCoordinator()
           && (!(resource.data.role == 'volunteer' && resource.data.status == 'pending'
                 && request.resource.data.status == 'active')
-              || resource.data.get('emailVerified', false) == true))
+              || (resource.data.get('emailVerified', false) == true
+                  && resource.data.get('identityVerified', false) == true)))
         || (uid() == userId
             && request.resource.data.role == resource.data.role
+            && (!request.resource.data.get('identityVerified', false)
+                || request.resource.data.get('identityVerified', false)
+                    == resource.data.get('identityVerified', false))
+            && (!request.resource.data.get('volunteerPresentationReviewed', false)
+                || request.resource.data.get('volunteerPresentationReviewed', false)
+                    == resource.data.get('volunteerPresentationReviewed', false))
             && (request.resource.data.status == resource.data.status
                 || request.resource.data.status == 'deleted')
             // RF3: solo se puede marcar el correo como verificado si Firebase lo certifica.
@@ -182,6 +189,27 @@ service cloud.firestore {
     match /consents/{userId} {
       allow create: if signedIn() && uid() == userId;
       allow read: if signedIn() && (uid() == userId || isCoordinator());
+    }
+
+    // Evidencia separada de la autorización opcional para publicar la presentación del voluntario.
+    match /presentationConsents/{userId} {
+      allow create, update: if signedIn() && uid() == userId
+        && request.resource.data.userId == uid()
+        && request.resource.data.authorized is bool
+        && request.resource.data.consentVersion is string
+        && request.resource.data.updatedAt is string;
+      allow read: if signedIn() && (uid() == userId || isCoordinator());
+      allow delete: if false;
+    }
+
+    match /identityConsents/{userId} {
+      allow create, update: if signedIn() && uid() == userId
+        && request.resource.data.userId == uid()
+        && request.resource.data.authorized is bool
+        && request.resource.data.consentVersion is string
+        && request.resource.data.updatedAt is string;
+      allow read: if signedIn() && (uid() == userId || isCoordinator());
+      allow delete: if false;
     }
 
     match /slots/{slotId} {

@@ -97,7 +97,7 @@ Future<void> changeProfilePhoto(BuildContext context) async {
             const Text('Foto de perfil', style: VitaText.title),
             const SizedBox(height: 4),
             Text(
-              'La ves tú y coordinación; durante una llamada también la verá la otra persona.',
+              'La ves tú y coordinación. Solo se mostrará a la persona mayor asignada si autorizas la presentación y coordinación la aprueba.',
               style: VitaText.caption.copyWith(color: sheetContext.vita.muted),
             ),
             const SizedBox(height: VitaSpace.md),

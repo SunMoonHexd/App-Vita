@@ -3,6 +3,9 @@ main = "src/index.js"
 compatibility_date = "2025-01-01"
 compatibility_flags = ["nodejs_compat"]
 
+[triggers]
+crons = ["0 6 * * *"]
+
 [vars]
 FIREBASE_PROJECT_ID = "app-vita-b55c4"
 LIVEKIT_URL = "wss://appvita-ea7c1r0x.livekit.cloud"          # LiveKit Cloud > Settings > Project URL

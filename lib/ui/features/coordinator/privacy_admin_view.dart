@@ -120,6 +120,7 @@ class _PrivacyAdminViewState extends State<PrivacyAdminView> {
               const Text('• En reposo: los datos se guardan cifrados en Firebase (Google Cloud).'),
               const Text('• Las videollamadas se autorizan con pases firmados en el servidor: la clave secreta no va en la app.'),
               const Text('• El acceso a cada dato depende del rol, con reglas en Firestore.'),
+              const Text('• Las imágenes de cédula de voluntarios quedan en su documento privado: solo puede leerlas el propio voluntario y coordinación. No se comparten con adultos mayores.'),
               const SizedBox(height: 6),
               Text('Estos parámetros los administra la plataforma; no se cambian desde la app.', style: TextStyle(color: muted)),
             ],
