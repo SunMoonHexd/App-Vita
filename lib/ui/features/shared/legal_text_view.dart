@@ -38,18 +38,11 @@ class LegalTextView extends StatelessWidget {
 // Resumen en lenguaje claro para la aplicación. Validar datos de contacto,
 // acceso y conservación de grabaciones con la persona responsable antes de publicar.
 const privacySections = [
-  LegalSection(
-    'Responsable del tratamiento',
-    'Responsable: [NOMBRE O RAZÓN SOCIAL DEL RESPONSABLE DE VITA]. NIT/identificación: [NIT]. '
-        'Domicilio: [CIUDAD Y DIRECCIÓN]. Canal para consultas y reclamos sobre datos personales: '
-        '[CORREO ELECTRÓNICO Y/O TELÉFONO]. Estos datos deben completarse y mantenerse actualizados '
-        'antes de publicar la aplicación.',
-  ),
   LegalSection('Tu autorización', consentText),
   LegalSection(
     'Qué información usamos',
-    'Usamos tu nombre, celular, fecha de nacimiento y contactos de apoyo. Si agregas una foto de perfil, '
-        'también la guardamos. La cuenta puede generar información sobre disponibilidad, solicitudes y '
+    'Usamos tu nombre, celular, fecha de nacimiento, contactos de apoyo y, en el registro de voluntarios, '
+        'una foto personal tomada para el perfil. La cuenta puede generar información sobre disponibilidad, solicitudes y '
         'llamadas, reportes de seguridad y autorizaciones. El dispositivo puede guardar un identificador '
         'técnico para recibir avisos de la app.',
   ),
@@ -127,12 +120,6 @@ const privacySections = [
 ];
 
 const termsSections = [
-  LegalSection(
-    'Quién ofrece el servicio',
-    'VITA es operada por [NOMBRE O RAZÓN SOCIAL], identificado con [NIT/IDENTIFICACIÓN], con domicilio '
-        'en [CIUDAD, COLOMBIA]. Contacto: [CORREO Y TELÉFONO]. Completa estos datos antes de ofrecer '
-        'públicamente el servicio.',
-  ),
   LegalSection(
     'Qué es VITA',
     'VITA conecta a personas adultas mayores con voluntarios para conversar y recibir compañía por llamada '

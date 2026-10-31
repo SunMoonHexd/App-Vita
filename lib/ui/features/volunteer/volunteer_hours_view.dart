@@ -51,6 +51,16 @@ class VolunteerHoursView extends StatelessWidget {
           const SizedBox(height: 12),
           _Total(label: 'Total acompañando', value: formatDuration(total), wide: true),
           const SizedBox(height: 22),
+          Container(
+            padding: const EdgeInsets.all(15),
+            decoration: BoxDecoration(color: context.vita.tint, borderRadius: BorderRadius.circular(18), border: Border.all(color: context.vita.tintBorder)),
+            child: const Row(children: [
+              Icon(Icons.volunteer_activism_outlined, color: VitaColors.primary, size: 27),
+              SizedBox(width: 12),
+              Expanded(child: Text('Aquí puedes ver el tiempo de tus llamadas completadas y revisar tu historial de acompañamiento.', style: TextStyle(height: 1.35))),
+            ]),
+          ),
+          const SizedBox(height: 18),
           VitaCard(
             children: [
               const VitaCardTitle('HISTORIAL DE LLAMADAS'),
@@ -67,12 +77,11 @@ class VolunteerHoursView extends StatelessWidget {
                 )
               else
                 for (final r in mine.take(50)) ...[
-                  VitaDataRow(
-                    emoji: r.status == CallRequestStatus.completed ? '📞' : '⚠️',
-                    label:
-                        '${formatDateTime(r.startedAt ?? r.createdAt)} · ${r.status == CallRequestStatus.completed ? 'Completada' : 'Interrumpida'}',
-                    value:
-                        '${shortName(repo.userById(r.elderlyId)?.displayName ?? '')} · ${formatDuration(r.duration)}',
+                  _CallHistoryItem(
+                    person: shortName(repo.userById(r.elderlyId)?.displayName ?? '', fallback: 'Adulto mayor'),
+                    date: formatDateTime(r.startedAt ?? r.createdAt),
+                    duration: formatDuration(r.duration),
+                    completed: r.status == CallRequestStatus.completed,
                   ),
                   const Divider(height: 1, indent: 20, endIndent: 20),
                 ],
@@ -83,6 +92,37 @@ class VolunteerHoursView extends StatelessWidget {
       ),
     );
   }
+}
+
+class _CallHistoryItem extends StatelessWidget {
+  const _CallHistoryItem({required this.person, required this.date, required this.duration, required this.completed});
+
+  final String person;
+  final String date;
+  final String duration;
+  final bool completed;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        child: Row(children: [
+          CircleAvatar(
+            backgroundColor: completed ? VitaColors.successBg : context.vita.warningTone.bg,
+            child: Icon(completed ? Icons.call_made_rounded : Icons.call_missed_outgoing_rounded, color: completed ? VitaColors.success : context.vita.warningTone.fg),
+          ),
+          const SizedBox(width: 12),
+          Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(person, style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16)),
+            const SizedBox(height: 3),
+            Text(date, style: TextStyle(color: context.vita.muted, fontSize: 13)),
+          ])),
+          const SizedBox(width: 8),
+          Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
+            Text(duration, style: const TextStyle(fontWeight: FontWeight.w800)),
+            Text(completed ? 'Completada' : 'Interrumpida', style: TextStyle(color: completed ? VitaColors.success : context.vita.warningTone.fg, fontSize: 12)),
+          ]),
+        ]),
+      );
 }
 
 class _Total extends StatelessWidget {

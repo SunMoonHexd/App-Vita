@@ -13,6 +13,7 @@ import 'package:vita_app/ui/features/shared/survey_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_format.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_help_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_hours_view.dart';
+import 'package:vita_app/ui/features/volunteer/volunteer_identity_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_profile_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_reports_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_schedule_view.dart';
@@ -176,6 +177,21 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
 
     final firstName = shortName(user.displayName, fallback: 'voluntario');
 
+    Future<void> changeAvailability(bool value) async {
+      try {
+        if (value) {
+          final registered = await VolunteerPushNotifications.instance.registerVolunteer(user.id);
+          if (!registered) {
+            if (context.mounted) await showVitaMessage(context, 'Permite las notificaciones para recibir solicitudes cuando VITA esté minimizada.');
+            return;
+          }
+        }
+        await repo.setAvailability(value);
+      } catch (e) {
+        if (context.mounted) await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
+
     return Scaffold(
       body: SafeArea(
         bottom: false,
@@ -184,9 +200,13 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
             VitaHeader(
               eyebrow: 'Panel de voluntario',
               title: 'Hola, $firstName',
-              badge: const Align(
+              badge: Align(
                 alignment: Alignment.centerLeft,
-                child: VitaPill(label: 'Voluntario verificado', tone: VitaTone.success, icon: Icons.verified_rounded),
+                child: VitaPill(
+                  label: user.identityVerified ? 'Identidad verificada' : 'Verificación pendiente',
+                  tone: user.identityVerified ? VitaTone.success : VitaTone.warning,
+                  icon: user.identityVerified ? Icons.verified_rounded : Icons.shield_outlined,
+                ),
               ),
               trailing: Semantics(
                 button: true,
@@ -218,56 +238,46 @@ class _VolunteerHomeViewState extends State<VolunteerHomeView> {
                     ),
                     const SizedBox(height: 16),
                   ],
-                  VitaCard(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 18),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Mi disponibilidad', style: TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                                const SizedBox(height: 2),
-                                Text(
-                                  user.available
-                                      ? 'Recibirás avisos aunque minimices VITA. Desactiva tu disponibilidad al terminar.'
-                                      : 'No recibirás solicitudes',
-                                  style: TextStyle(fontSize: 16, color: context.vita.muted, height: 1.3),
-                                ),
-                              ],
-                            ),
-                          ),
-                          Switch(
-                            value: user.available,
-                            onChanged: (value) async {
-                              try {
-                                if (value) {
-                                  final registered =
-                                      await VolunteerPushNotifications.instance
-                                          .registerVolunteer(user.id);
-                                  if (!registered) {
-                                    if (context.mounted) {
-                                      await showVitaMessage(
-                                        context,
-                                        'Permite las notificaciones para poder recibir solicitudes cuando VITA esté minimizada.',
-                                      );
-                                    }
-                                    return;
-                                  }
-                                }
-                                await repo.setAvailability(value);
-                              } catch (e) {
-                                if (context.mounted) {
-                                  await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
-                                }
-                              }
-                            },
-                          ),
-                        ],
+                  if (!user.identityVerified)
+                    Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(color: context.vita.warningTone.bg, borderRadius: BorderRadius.circular(22), border: Border.all(color: context.vita.warningTone.border)),
+                      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                        const Row(children: [Icon(Icons.shield_outlined), SizedBox(width: 8), Expanded(child: Text('Verifica tu identidad para recibir llamadas', style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)))]),
+                        const SizedBox(height: 7),
+                        const Text('Coordinación debe revisar tu cédula. Las imágenes se eliminan después de verificarla.'),
+                        const SizedBox(height: 12),
+                        VitaPrimaryButton(label: 'Verificar identidad', icon: Icons.badge_outlined, height: 54, onPressed: () => _open(const VolunteerIdentityView())),
+                      ]),
+                    )
+                  else
+                    VitaCard(
+                      child: Padding(
+                        padding: const EdgeInsets.all(18),
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Row(children: [
+                            Icon(user.available ? Icons.notifications_active_outlined : Icons.notifications_off_outlined, color: user.available ? VitaColors.success : context.vita.muted, size: 28),
+                            const SizedBox(width: 10),
+                            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                              Text(user.available ? 'Estás disponible' : 'Estás fuera de línea', style: const TextStyle(fontSize: 19, fontWeight: FontWeight.w800)),
+                              Text(user.available ? 'Puedes recibir solicitudes de llamada.' : 'Activa el botón cuando quieras acompañar.', style: TextStyle(color: context.vita.muted)),
+                            ])),
+                            Switch.adaptive(value: user.available, onChanged: active != null ? null : changeAvailability),
+                          ]),
+                          if (active != null) ...[
+                            const SizedBox(height: 8),
+                            const Text('Termina la llamada actual antes de cambiar tu disponibilidad.'),
+                          ],
+                          const Divider(height: 22),
+                          Row(children: [
+                            const Icon(Icons.schedule_outlined, size: 19),
+                            const SizedBox(width: 8),
+                            Expanded(child: Text(repo.slotsFor(user.id).isEmpty ? 'Sin turnos: podrás recibir llamadas a cualquier hora.' : '${repo.slotsFor(user.id).length} turnos configurados.', style: TextStyle(color: context.vita.muted))),
+                            TextButton.icon(onPressed: () => _open(const VolunteerScheduleView()), icon: const Icon(Icons.edit_calendar_outlined), label: const Text('Turnos')),
+                          ]),
+                        ]),
                       ),
                     ),
-                  ),
                   const SizedBox(height: 16),
                   Row(
                     children: [
