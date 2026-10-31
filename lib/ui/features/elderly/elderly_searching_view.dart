@@ -8,6 +8,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
+import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 import 'package:vita_app/ui/features/shared/report_view.dart';
 import 'package:vita_app/ui/features/shared/survey_view.dart';
@@ -271,7 +272,10 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
                     : Column(
                         children: [
                           if (request.volunteerId != null)
-                            _MatchedVolunteerCard(user: VitaScope.of(context).userById(request.volunteerId!)),
+                            _MatchedVolunteerCard(
+                              user: VitaScope.of(context)
+                                  .userById(request.volunteerId!),
+                            ),
                           _CodeCard(code: request.joinCode),
                         ],
                       ),
@@ -348,7 +352,9 @@ class _MatchedVolunteerCard extends StatelessWidget {
         !volunteer.identityVerified) {
       return const SizedBox.shrink();
     }
-    final showPresentation = volunteer.volunteerPresentationConsent && volunteer.volunteerPresentationReviewed;
+    final showPresentation =
+        volunteer.volunteerPresentationConsent &&
+        volunteer.volunteerPresentationReviewed;
     return Card(
       margin: const EdgeInsets.only(bottom: 16),
       child: Padding(
@@ -356,25 +362,48 @@ class _MatchedVolunteerCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(children: [
-              if (showPresentation) VitaAvatar(name: volunteer.displayName, size: 64, photoBase64: volunteer.volunteerPresentationPhoto),
-              if (showPresentation) const SizedBox(width: 14),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(volunteer.displayName, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w800)),
-                const SizedBox(height: 4),
-                const Text('Identidad verificada por coordinación', style: TextStyle(color: VitaColors.success)),
-              ])),
-            ]),
+            Row(
+              children: [
+                if (showPresentation)
+                  VitaAvatar(
+                    name: volunteer.displayName,
+                    size: 64,
+                    photoBase64: volunteer.volunteerPresentationPhoto,
+                  ),
+                if (showPresentation) const SizedBox(width: 14),
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        volunteer.displayName,
+                        style: const TextStyle(
+                          fontSize: 20,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      const Text(
+                        'Identidad verificada por coordinación',
+                        style: TextStyle(color: VitaColors.success),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
             if (showPresentation && volunteer.volunteerBio.isNotEmpty) ...[
               const SizedBox(height: 12),
               Text(volunteer.volunteerBio),
             ],
-            if (showPresentation && volunteer.volunteerInterests.isNotEmpty) ...[
+            if (showPresentation &&
+                volunteer.volunteerInterests.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Intereses: ${volunteer.volunteerInterests}'),
             ],
-            if (showPresentation && volunteer.volunteerExperience.isNotEmpty) ...[
+            if (showPresentation &&
+                volunteer.volunteerExperience.isNotEmpty) ...[
               const SizedBox(height: 8),
               Text('Voluntariado: ${volunteer.volunteerExperience}'),
             ],

@@ -64,7 +64,7 @@ const privacySections = [
         'foto de perfil, presentación, intereses y experiencia de voluntariado. La autorización es '
         'voluntaria, específica y revocable. Coordinación revisa el contenido antes de publicarlo; si el '
         'voluntario cambia la presentación o retira el permiso, se oculta hasta una nueva revisión o deja '
-        de mostrarse. Sin autorización no se publica esta presentación.',
+        'de mostrarse. Sin autorización no se publica esta presentación.',
   ),
   LegalSection(
     'Datos sensibles y datos de otras personas',
@@ -151,7 +151,7 @@ const termsSections = [
     'VITA facilita el contacto entre personas para acompañamiento social. No presta ni sustituye servicios '
         'de salud, psicología, trabajo social, asesoría jurídica o atención de emergencias; tampoco '
         'garantiza disponibilidad, compatibilidad, continuidad o respuesta inmediata. La app puede '
-        interrumpirse por mantenimiento, conectividad o fallas de terceros.',
+        'interrumpirse por mantenimiento, conectividad o fallas de terceros.',
   ),
   LegalSection(
     'La app no es para emergencias',
@@ -174,8 +174,8 @@ const termsSections = [
     'Quien participa como voluntario debe respetar la privacidad y autonomía de la otra persona, limitar '
         'la interacción al acompañamiento social, seguir las pautas de seguridad de VITA y reportar '
         'situaciones de riesgo por los canales habilitados. No debe solicitar dinero, contraseñas, códigos, '
-        regalos ni datos financieros, ofrecer diagnósticos o tratamientos, ni iniciar relaciones de '
-        dependencia o contacto fuera de la plataforma.',
+        'regalos ni datos financieros, ofrecer diagnósticos o tratamientos, ni iniciar relaciones de '
+        'dependencia o contacto fuera de la plataforma.',
   ),
   LegalSection(
     'Llamadas y grabación',
