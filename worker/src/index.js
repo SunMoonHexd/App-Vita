@@ -114,6 +114,7 @@ async function notifyIncomingCall(request, uid, env) {
   if (!token) return json({ ok: true, delivered: false, reason: 'token_missing' });
 
   const attempt = integerField(call, 'attempts');
+  const audioOnly = boolField(call, 'audioOnly');
   if (
     stringField(call, 'pushNotificationSentToVolunteer') === volunteerId &&
     integerField(call, 'pushNotificationSentAtAttempt') === attempt
@@ -138,8 +139,10 @@ async function notifyIncomingCall(request, uid, env) {
         message: {
           token,
           notification: {
-            title: '¡Hay alguien esperando compañía!',
-            body: 'Tienes una solicitud de llamada en VITA. Toca para revisarla.',
+            title: audioOnly ? 'Te invitan a conversar por voz' : '¡Hay alguien esperando compañía!',
+            body: audioOnly
+              ? 'Tienes una solicitud de llamada de voz en VITA. Toca para responder.'
+              : 'Tienes una solicitud de videollamada en VITA. Toca para responder.',
           },
           data: { type: 'incoming_call', requestId },
           android: {
@@ -175,6 +178,31 @@ async function verifyFirebaseUser(request, env) {
   });
   if (!payload.sub) throw new Error('Sesión inválida.');
   return payload.sub; // uid de Firebase
+}
+
+const validId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(v);
+
+/**
+ * ¿Puede este usuario entrar a la sala como profesional de apoyo?
+ * Debe ser un psicólogo activo y tener una solicitud de apoyo ACEPTADA por él,
+ * de esta misma llamada y de esta misma sala.
+ */
+async function canJoinAsPsychologist(env, accessToken, uid, body) {
+  if (!validId(body.supportRequestId)) return false;
+  const [user, support] = await Promise.all([
+    getFirestoreDocument(env, accessToken, `users/${uid}`),
+    getFirestoreDocument(env, accessToken, `supportRequests/${body.supportRequestId}`),
+  ]);
+  return (
+    !!user &&
+    !!support &&
+    stringField(user, 'role') === 'psychologist' &&
+    stringField(user, 'status') === 'active' &&
+    stringField(support, 'status') === 'accepted' &&
+    stringField(support, 'psychologistId') === uid &&
+    stringField(support, 'callId') === body.requestId &&
+    stringField(support, 'roomName') === body.roomName
+  );
 }
 
 const validRoom = (r) => typeof r === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(r);
@@ -218,9 +246,12 @@ export default {
         const call = await getFirestoreDocument(env, accessToken, `requests/${body.requestId}`);
         const isParticipant =
           stringField(call, 'elderlyId') === uid || stringField(call, 'volunteerId') === uid;
+        // Un psicólogo no es parte de la llamada: entra solo con una solicitud de apoyo aceptada.
+        const isSupport =
+          !!call && !isParticipant && (await canJoinAsPsychologist(env, accessToken, uid, body));
         if (
           !call ||
-          !isParticipant ||
+          !(isParticipant || isSupport) ||
           stringField(call, 'status') !== 'connected' ||
           stringField(call, 'roomName') !== body.roomName
         ) {

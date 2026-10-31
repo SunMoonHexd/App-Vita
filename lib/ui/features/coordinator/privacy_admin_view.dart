@@ -130,6 +130,7 @@ class _PrivacyAdminViewState extends State<PrivacyAdminView> {
               Text(_roleLine(users, UserRole.elderly, 'Adultos mayores')),
               Text(_roleLine(users, UserRole.volunteer, 'Voluntarios')),
               Text(_roleLine(users, UserRole.coordinator, 'Coordinación')),
+              Text(_roleLine(users, UserRole.psychologist, 'Psicología')),
               const SizedBox(height: 6),
               Text('Los voluntarios solo pasan a activos cuando coordinación los aprueba.', style: TextStyle(color: muted)),
             ],

@@ -18,7 +18,7 @@ class VitaThemeController extends ChangeNotifier {
   ThemeMode get mode => _mode;
 
   /// Quién puede cambiar la apariencia.
-  static bool canChooseTheme(UserRole? role) => role == UserRole.volunteer || role == UserRole.coordinator;
+  static bool canChooseTheme(UserRole? role) => role == UserRole.volunteer || role == UserRole.coordinator || role == UserRole.psychologist;
 
   /// Tema que se debe usar ahora según quién tiene la sesión abierta.
   ThemeMode effectiveFor(UserRole? role) => canChooseTheme(role) ? _mode : ThemeMode.light;

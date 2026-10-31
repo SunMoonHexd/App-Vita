@@ -1,4 +1,5 @@
 import 'dart:async';
+
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 
 import 'package:flutter/material.dart';
@@ -12,7 +13,9 @@ import 'package:vita_app/ui/features/shared/report_view.dart';
 import 'package:vita_app/ui/features/shared/survey_view.dart';
 
 class ElderlySearchingView extends StatefulWidget {
-  const ElderlySearchingView({super.key});
+  const ElderlySearchingView({super.key, this.audioOnly = false});
+
+  final bool audioOnly;
 
   @override
   State<ElderlySearchingView> createState() => _ElderlySearchingViewState();
@@ -52,8 +55,11 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     try {
       final repo = VitaScope.of(context);
       final request = recallOf == null
-          ? await repo.startCallRequest()
-          : await repo.recallAfterInterruption(recallOf);
+          ? await repo.startCallRequest(audioOnly: widget.audioOnly)
+          : await repo.recallAfterInterruption(
+              recallOf,
+              audioOnly: widget.audioOnly,
+            );
       if (!mounted) return;
       setState(() => _request = request);
       _repo = VitaScope.of(context);
@@ -70,11 +76,13 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     final repo = _repo;
     if (!mounted || current == null || repo == null) return;
     final latest = repo.requests.cast<CallRequest?>().firstWhere(
-          (r) => r?.id == current.id,
-          orElse: () => null,
-        );
+      (r) => r?.id == current.id,
+      orElse: () => null,
+    );
     if (latest == null) return;
-    if (latest.status == current.status && latest.volunteerId == current.volunteerId) return;
+    if (latest.status == current.status &&
+        latest.volunteerId == current.volunteerId)
+      return;
     setState(() => _request = latest);
     _watch(latest);
   }
@@ -119,20 +127,25 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
       await repo.joinCurrentCall();
     } catch (e) {
       if (mounted) {
-        await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
+        await showVitaMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+        );
       }
     }
     if (!mounted) return;
     final request = repo.requests.cast<CallRequest?>().firstWhere(
-          (r) => r?.id == _request?.id,
-          orElse: () => _request,
-        );
+      (r) => r?.id == _request?.id,
+      orElse: () => _request,
+    );
     var recall = false;
     if (request != null) {
-      recall = await Navigator.push<bool>(
+      recall =
+          await Navigator.push<bool>(
             context,
             MaterialPageRoute<bool>(
-              builder: (_) => SurveyView(request: request, askAccompanied: true),
+              builder: (_) =>
+                  SurveyView(request: request, askAccompanied: true),
             ),
           ) ??
           false;
@@ -162,7 +175,9 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
   Future<void> _help() {
     return showVitaMessage(
       context,
-      'Activa el micrófono, sube el volumen y permite la cámara. La llamada no se corta al leer esta ayuda.',
+      (_request?.audioOnly ?? widget.audioOnly)
+          ? 'Activa el micrófono y sube el volumen. La llamada será solo de voz; podrás encender la cámara si lo deseas.'
+          : 'Activa el micrófono, sube el volumen y permite la cámara. La llamada no se corta al leer esta ayuda.',
     );
   }
 
@@ -175,15 +190,27 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('¿Llamar a tu familiar?'),
-        content: const Text('Se cerrará la búsqueda o la llamada y se abrirá el marcador.'),
+        content: const Text(
+          'Se cerrará la búsqueda o la llamada y se abrirá el marcador.',
+        ),
         actions: [
-          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('No')),
-          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Sí, llamar')),
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('No'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Sí, llamar'),
+          ),
         ],
       ),
     );
     if (ok != true || !mounted) return;
-    await repo.addAlert(callId: request.id, elderlyId: user.id, note: 'Botón de emergencia del adulto mayor');
+    await repo.addAlert(
+      callId: request.id,
+      elderlyId: user.id,
+      note: 'Botón de emergencia del adulto mayor',
+    );
     await repo.finishCall(request.id, status: CallRequestStatus.interrupted);
     final phone = user.familyPhone;
     if (phone != null) {
@@ -203,7 +230,10 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
         child: Column(
           children: [
             VitaErrorText(_error),
-            VitaPrimaryButton(label: 'Volver', onPressed: () => Navigator.pop(context)),
+            VitaPrimaryButton(
+              label: 'Volver',
+              onPressed: () => Navigator.pop(context),
+            ),
           ],
         ),
       );
@@ -211,16 +241,23 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
 
     // El mensaje y el paso cambian según avanza la solicitud: buscando → encontrado → conectando.
     final status = request?.status;
+    final audioOnly = request?.audioOnly ?? widget.audioOnly;
     final connecting = _joining || status == CallRequestStatus.connected;
     final step = connecting ? 2 : (status == CallRequestStatus.ringing ? 1 : 0);
     final headline = connecting
-        ? 'Conectando la videollamada…'
+        ? (audioOnly
+              ? 'Conectando la llamada de voz…'
+              : 'Conectando la videollamada…')
         : status == CallRequestStatus.ringing
-            ? '¡Encontramos un voluntario! Esperando que conteste…'
-            : 'Estamos buscando a alguien para acompañarte…';
+        ? '¡Encontramos un voluntario! Esperando que conteste…'
+        : audioOnly
+        ? 'Buscamos a alguien para conversar por voz…'
+        : 'Estamos buscando a alguien para acompañarte…';
 
     return AnnotatedRegion<SystemUiOverlayStyle>(
-      value: SystemUiOverlayStyle.light.copyWith(statusBarColor: Colors.transparent),
+      value: SystemUiOverlayStyle.light.copyWith(
+        statusBarColor: Colors.transparent,
+      ),
       child: Scaffold(
         backgroundColor: VitaColors.bg,
         body: Column(
@@ -229,7 +266,9 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
             Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.fromLTRB(22, 22, 22, 12),
-                child: request == null ? const SizedBox.shrink() : _CodeCard(code: request.joinCode),
+                child: request == null
+                    ? const SizedBox.shrink()
+                    : _CodeCard(code: request.joinCode),
               ),
             ),
             // Las acciones quedan siempre a la vista, aunque la pantalla sea pequeña.
@@ -271,7 +310,10 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
                         onPressed: () => Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (_) => ReportView(request: request!, reportedId: request.volunteerId!),
+                            builder: (_) => ReportView(
+                              request: request!,
+                              reportedId: request.volunteerId!,
+                            ),
                           ),
                         ),
                         child: const Text('Reportar'),
@@ -349,7 +391,8 @@ class _SearchRadar extends StatefulWidget {
   State<_SearchRadar> createState() => _SearchRadarState();
 }
 
-class _SearchRadarState extends State<_SearchRadar> with SingleTickerProviderStateMixin {
+class _SearchRadarState extends State<_SearchRadar>
+    with SingleTickerProviderStateMixin {
   static const double _core = 112;
   static const double _full = 200;
 
@@ -382,7 +425,10 @@ class _SearchRadarState extends State<_SearchRadar> with SingleTickerProviderSta
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         color: Colors.white.withValues(alpha: 0.16 * (1 - t)),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.55 * (1 - t)), width: 2),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: 0.55 * (1 - t)),
+          width: 2,
+        ),
       ),
     );
   }
@@ -398,12 +444,20 @@ class _SearchRadarState extends State<_SearchRadar> with SingleTickerProviderSta
         color: Colors.white,
         borderRadius: BorderRadius.circular(34),
         boxShadow: [
-          BoxShadow(color: Colors.black.withValues(alpha: 0.18), blurRadius: 24, offset: const Offset(0, 8)),
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.18),
+            blurRadius: 24,
+            offset: const Offset(0, 8),
+          ),
         ],
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(29),
-        child: Image.asset('assets/icon/logo.png', fit: BoxFit.cover, cacheWidth: 336),
+        child: Image.asset(
+          'assets/icon/logo.png',
+          fit: BoxFit.cover,
+          cacheWidth: 336,
+        ),
       ),
     );
 
@@ -421,7 +475,8 @@ class _SearchRadarState extends State<_SearchRadar> with SingleTickerProviderSta
                   return Stack(
                     alignment: Alignment.center,
                     children: [
-                      for (final phase in const [0.0, 0.33, 0.66]) _ring((_controller.value + phase) % 1.0),
+                      for (final phase in const [0.0, 0.33, 0.66])
+                        _ring((_controller.value + phase) % 1.0),
                       child!,
                     ],
                   );
@@ -454,17 +509,26 @@ class _SearchSteps extends StatelessWidget {
             alignment: Alignment.center,
             decoration: BoxDecoration(
               shape: BoxShape.circle,
-              color: i <= current ? Colors.white : Colors.white.withValues(alpha: 0.25),
+              color: i <= current
+                  ? Colors.white
+                  : Colors.white.withValues(alpha: 0.25),
             ),
             child: done
-                ? const Icon(Icons.check_rounded, size: 19, color: VitaColors.primary)
+                ? const Icon(
+                    Icons.check_rounded,
+                    size: 19,
+                    color: VitaColors.primary,
+                  )
                 : active
-                    ? Container(
-                        width: 10,
-                        height: 10,
-                        decoration: const BoxDecoration(shape: BoxShape.circle, color: VitaColors.primary),
-                      )
-                    : null,
+                ? Container(
+                    width: 10,
+                    height: 10,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: VitaColors.primary,
+                    ),
+                  )
+                : null,
           ),
           const SizedBox(height: 6),
           Text(
@@ -493,7 +557,9 @@ class _SearchSteps extends StatelessWidget {
               child: Container(
                 height: 3,
                 decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: i <= current ? 0.9 : 0.3),
+                  color: Colors.white.withValues(
+                    alpha: i <= current ? 0.9 : 0.3,
+                  ),
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
@@ -507,7 +573,10 @@ class _SearchSteps extends StatelessWidget {
       container: true,
       label: 'Paso ${current + 1} de ${_labels.length}: ${_labels[current]}',
       excludeSemantics: true,
-      child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: children),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: children,
+      ),
     );
   }
 }
@@ -546,7 +615,9 @@ class _CodeCard extends StatelessWidget {
                 icon: const Icon(Icons.copy_rounded),
                 onPressed: () {
                   Clipboard.setData(ClipboardData(text: code));
-                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Código copiado')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Código copiado')),
+                  );
                 },
               ),
             ],
@@ -554,7 +625,11 @@ class _CodeCard extends StatelessWidget {
           const SizedBox(height: VitaSpace.xs),
           const Text(
             'Si el voluntario está en otro celular, que ingrese este código.',
-            style: TextStyle(fontSize: 16, height: 1.3, color: VitaColors.muted),
+            style: TextStyle(
+              fontSize: 16,
+              height: 1.3,
+              color: VitaColors.muted,
+            ),
           ),
         ],
       ),

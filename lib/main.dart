@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:vita_app/config/app_navigator.dart';
 import 'package:vita_app/data/repositories/vita_repository.dart';
+import 'package:vita_app/data/services/biometric_access.dart';
 import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/firebase_options.dart';
@@ -112,7 +113,7 @@ class _VitaAppState extends State<VitaApp> {
                   child: child ?? const SizedBox.shrink(),
                 );
               },
-              home: const RootGate(),
+              home: const BiometricAccessGate(child: RootGate()),
             );
           },
         ),

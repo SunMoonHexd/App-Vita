@@ -58,12 +58,29 @@ class VitaLogoHeader extends StatelessWidget {
               ),
             ],
           ),
-          child: const Icon(Icons.favorite_rounded, color: Colors.white, size: 34),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(22),
+            child: Image.asset(
+              'assets/icon/logo.png',
+              fit: BoxFit.cover,
+              cacheWidth: 192,
+              errorBuilder: (_, _, _) => const Icon(
+                Icons.volunteer_activism_rounded,
+                color: Colors.white,
+                size: 34,
+              ),
+            ),
+          ),
         ),
         const SizedBox(height: 8),
         const Text(
           'VITA',
-          style: TextStyle(fontSize: 42, fontWeight: FontWeight.w900, letterSpacing: 1, color: VitaColors.ink),
+          style: TextStyle(
+            fontSize: 42,
+            fontWeight: FontWeight.w900,
+            letterSpacing: 1,
+            color: VitaColors.ink,
+          ),
         ),
         const SizedBox(height: 2),
         const Text(
@@ -131,9 +148,10 @@ class _VitaConnectionPillState extends State<VitaConnectionPill> {
 
 /// Texto pequeño que va encima de un campo.
 class VitaFieldLabel extends StatelessWidget {
-  const VitaFieldLabel(this.text, {super.key});
+  const VitaFieldLabel(this.text, {super.key, this.fontSize = 16});
 
   final String text;
+  final double fontSize;
 
   @override
   Widget build(BuildContext context) {
@@ -141,7 +159,10 @@ class VitaFieldLabel extends StatelessWidget {
       alignment: Alignment.centerLeft,
       child: Padding(
         padding: const EdgeInsets.only(bottom: 8),
-        child: Text(text, style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
+        child: Text(
+          text,
+          style: TextStyle(fontSize: fontSize, fontWeight: FontWeight.w800),
+        ),
       ),
     );
   }
@@ -149,7 +170,12 @@ class VitaFieldLabel extends StatelessWidget {
 
 /// Círculo con la foto de perfil o, si no hay, con la inicial del nombre.
 class VitaAvatar extends StatefulWidget {
-  const VitaAvatar({super.key, required this.name, this.size = 52, this.photoBase64});
+  const VitaAvatar({
+    super.key,
+    required this.name,
+    this.size = 52,
+    this.photoBase64,
+  });
 
   final String name;
   final double size;
@@ -195,10 +221,16 @@ class _VitaAvatarState extends State<VitaAvatar> {
   Widget build(BuildContext context) {
     final size = widget.size;
     final trimmed = widget.name.trim();
-    final initial = trimmed.isEmpty ? '?' : trimmed.substring(0, 1).toUpperCase();
+    final initial = trimmed.isEmpty
+        ? '?'
+        : trimmed.substring(0, 1).toUpperCase();
     final letter = Text(
       initial,
-      style: TextStyle(fontSize: size * 0.44, fontWeight: FontWeight.w900, color: Colors.white),
+      style: TextStyle(
+        fontSize: size * 0.44,
+        fontWeight: FontWeight.w900,
+        color: Colors.white,
+      ),
     );
     final bytes = _bytes;
     return Container(
@@ -266,12 +298,21 @@ class VitaPinDots extends StatelessWidget {
 
 /// Teclado numérico grande para escribir el PIN.
 class VitaKeypad extends StatelessWidget {
-  const VitaKeypad({super.key, required this.onDigit, required this.onBackspace});
+  const VitaKeypad({
+    super.key,
+    required this.onDigit,
+    required this.onBackspace,
+  });
 
   final void Function(String) onDigit;
   final VoidCallback onBackspace;
 
-  Widget _key({required Widget child, required VoidCallback onTap, required Color color, String? label}) {
+  Widget _key({
+    required Widget child,
+    required VoidCallback onTap,
+    required Color color,
+    String? label,
+  }) {
     return Semantics(
       button: true,
       label: label,
@@ -295,7 +336,10 @@ class VitaKeypad extends StatelessWidget {
       color: VitaColors.tint,
       label: d,
       onTap: () => onDigit(d),
-      child: Text(d, style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800)),
+      child: Text(
+        d,
+        style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w800),
+      ),
     );
   }
 
@@ -303,16 +347,16 @@ class VitaKeypad extends StatelessWidget {
   Widget build(BuildContext context) {
     const gap = SizedBox(width: 12);
     Widget row(List<Widget> cells) => Padding(
-          padding: const EdgeInsets.only(bottom: 12),
-          child: Row(
-            children: [
-              for (var i = 0; i < cells.length; i++) ...[
-                if (i > 0) gap,
-                Expanded(child: cells[i]),
-              ],
-            ],
-          ),
-        );
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        children: [
+          for (var i = 0; i < cells.length; i++) ...[
+            if (i > 0) gap,
+            Expanded(child: cells[i]),
+          ],
+        ],
+      ),
+    );
 
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 340),
@@ -332,7 +376,24 @@ class VitaKeypad extends StatelessWidget {
                   color: VitaColors.alertBg,
                   label: 'Borrar',
                   onTap: onBackspace,
-                  child: const Icon(Icons.backspace_rounded, color: VitaColors.alert, size: 28),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        Icons.backspace_rounded,
+                        color: VitaColors.alert,
+                        size: 24,
+                      ),
+                      Text(
+                        'Borrar',
+                        style: TextStyle(
+                          color: VitaColors.alert,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ],

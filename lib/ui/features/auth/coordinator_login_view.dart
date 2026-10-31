@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:vita_app/data/services/biometric_access.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 
@@ -44,6 +45,9 @@ class _CoordinatorLoginViewState extends State<CoordinatorLoginView> {
                 setState(() => _error = result.error);
                 return;
               }
+              BiometricAccess.markCredentialLogin(result.user!.id);
+              await BiometricAccess.offerAfterLogin(context, uid: result.user!.id);
+              if (!context.mounted) return;
               Navigator.popUntil(context, (route) => route.isFirst);
             },
           ),

@@ -56,11 +56,14 @@ class LiveKitApi {
     required String roomName,
     required String requestId,
     required String displayName,
+    String? supportRequestId,
   }) async {
     final data = await _post('/token', {
       'roomName': roomName,
       'requestId': requestId,
       'displayName': displayName,
+      // Solo el psicólogo lo envía: el Worker comprueba que esa solicitud de apoyo esté aceptada por él.
+      if (supportRequestId != null) 'supportRequestId': supportRequestId,
     });
     return (url: data['url'] as String, token: data['token'] as String);
   }

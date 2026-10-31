@@ -12,7 +12,8 @@ class VolunteerIncomingCallView extends StatefulWidget {
   final String requestId;
 
   @override
-  State<VolunteerIncomingCallView> createState() => _VolunteerIncomingCallViewState();
+  State<VolunteerIncomingCallView> createState() =>
+      _VolunteerIncomingCallViewState();
 }
 
 class _VolunteerIncomingCallViewState extends State<VolunteerIncomingCallView> {
@@ -69,19 +70,22 @@ class _VolunteerIncomingCallViewState extends State<VolunteerIncomingCallView> {
       listenable: repo,
       builder: (context, _) {
         final request = repo.requests.cast<CallRequest?>().firstWhere(
-              (item) => item?.id == widget.requestId,
-              orElse: () => null,
-            );
+          (item) => item?.id == widget.requestId,
+          orElse: () => null,
+        );
         final user = repo.currentUser;
         final assignedToMe = request?.volunteerId == user?.id;
         final stillRinging = request?.status == CallRequestStatus.ringing;
-        final connecting = request != null &&
+        final connecting =
+            request != null &&
             assignedToMe &&
             request.status == CallRequestStatus.connected;
         final canAnswer = request != null && assignedToMe && stillRinging;
 
         return VitaPage(
-          title: 'Solicitud de llamada',
+          title: request?.audioOnly == true
+              ? 'Solicitud de llamada de voz'
+              : 'Solicitud de videollamada',
           child: Center(
             child: VitaCard(
               child: Padding(
@@ -95,18 +99,25 @@ class _VolunteerIncomingCallViewState extends State<VolunteerIncomingCallView> {
                       canAnswer
                           ? 'Alguien espera compañía'
                           : connecting
-                              ? 'Conectando a la llamada…'
-                              : 'Esta solicitud ya no está disponible',
+                          ? 'Conectando a la llamada…'
+                          : 'Esta solicitud ya no está disponible',
                       textAlign: TextAlign.center,
-                      style: const TextStyle(fontSize: 23, fontWeight: FontWeight.w800),
+                      style: const TextStyle(
+                        fontSize: 23,
+                        fontWeight: FontWeight.w800,
+                      ),
                     ),
                     const SizedBox(height: 10),
                     Text(
                       canAnswer
-                          ? 'Si puedes conversar ahora, acepta para iniciar la llamada.'
+                          ? request.audioOnly
+                                ? 'La persona quiere conversar por voz. Acepta para iniciar la llamada.'
+                                : 'Si puedes conversar ahora, acepta para iniciar la videollamada.'
                           : connecting
-                              ? 'Estamos preparando la videollamada. Esto puede tardar unos segundos.'
-                              : 'Puede que otra persona ya la haya atendido o que haya vencido.',
+                          ? request.audioOnly
+                                ? 'Estamos preparando la llamada de voz. Esto puede tardar unos segundos.'
+                                : 'Estamos preparando la videollamada. Esto puede tardar unos segundos.'
+                          : 'Puede que otra persona ya la haya atendido o que haya vencido.',
                       textAlign: TextAlign.center,
                       style: TextStyle(color: context.vita.muted, fontSize: 16),
                     ),
@@ -139,7 +150,9 @@ class _VolunteerIncomingCallViewState extends State<VolunteerIncomingCallView> {
                     ] else
                       VitaPrimaryButton(
                         label: 'Volver al inicio',
-                        onPressed: _working ? null : () => Navigator.pop(context),
+                        onPressed: _working
+                            ? null
+                            : () => Navigator.pop(context),
                       ),
                   ],
                 ),

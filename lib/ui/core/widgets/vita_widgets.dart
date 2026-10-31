@@ -18,10 +18,7 @@ class VitaPage extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: Text(title), actions: actions),
       body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(20),
-          child: child,
-        ),
+        child: Padding(padding: const EdgeInsets.all(20), child: child),
       ),
     );
   }
@@ -108,9 +105,15 @@ class VitaSecondaryButton extends StatelessWidget {
           foregroundColor: color ?? p.ink,
           backgroundColor: p.surface,
           side: BorderSide(color: p.border, width: 2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(VitaRadius.md)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(VitaRadius.md),
+          ),
           padding: const EdgeInsets.symmetric(horizontal: 12),
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w800),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 18,
+            fontWeight: FontWeight.w800,
+          ),
         ),
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -154,14 +157,31 @@ class VitaHeroHeader extends StatelessWidget {
       child: Container(
         width: double.infinity,
         decoration: BoxDecoration(
-          gradient: LinearGradient(begin: Alignment.topLeft, end: Alignment.bottomRight, colors: colors),
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: colors,
+          ),
         ),
         child: Stack(
           children: [
-            Positioned(right: -40, top: -30, child: _HeroBubble(size: 170, alpha: 0.10)),
-            Positioned(left: -60, bottom: -70, child: _HeroBubble(size: 190, alpha: 0.08)),
+            Positioned(
+              right: -40,
+              top: -30,
+              child: _HeroBubble(size: 170, alpha: 0.10),
+            ),
+            Positioned(
+              left: -60,
+              bottom: -70,
+              child: _HeroBubble(size: 190, alpha: 0.08),
+            ),
             Padding(
-              padding: EdgeInsets.fromLTRB(VitaSpace.xxl, top + VitaSpace.lg, VitaSpace.xxl, VitaSpace.xxl),
+              padding: EdgeInsets.fromLTRB(
+                VitaSpace.xxl,
+                top + VitaSpace.lg,
+                VitaSpace.xxl,
+                VitaSpace.xxl,
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -174,13 +194,20 @@ class VitaHeroHeader extends StatelessWidget {
                             if (eyebrow != null)
                               Text(
                                 eyebrow!,
-                                style: TextStyle(fontSize: 18, color: Colors.white.withValues(alpha: 0.92)),
+                                style: TextStyle(
+                                  fontSize: 18,
+                                  color: Colors.white.withValues(alpha: 0.92),
+                                ),
                               ),
                             Text(
                               title,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(fontSize: 34, fontWeight: FontWeight.w900, color: Colors.white),
+                              style: const TextStyle(
+                                fontSize: 34,
+                                fontWeight: FontWeight.w900,
+                                color: Colors.white,
+                              ),
                             ),
                           ],
                         ),
@@ -217,7 +244,10 @@ class _HeroBubble extends StatelessWidget {
       child: Container(
         width: size,
         height: size,
-        decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withValues(alpha: alpha)),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          color: Colors.white.withValues(alpha: alpha),
+        ),
       ),
     );
   }
@@ -247,10 +277,7 @@ class VitaErrorText extends StatelessWidget {
           Icon(Icons.error_outline, color: t.fg),
           const SizedBox(width: 10),
           Expanded(
-            child: Text(
-              message!,
-              style: TextStyle(color: t.fg, fontSize: 18),
-            ),
+            child: Text(message!, style: TextStyle(color: t.fg, fontSize: 18)),
           ),
         ],
       ),
@@ -266,7 +293,10 @@ Future<void> showVitaMessage(BuildContext context, String message) {
       title: const Text('App VITA'),
       content: Text(message),
       actions: [
-        TextButton(onPressed: () => Navigator.pop(context), child: const Text('Entendido')),
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Entendido'),
+        ),
       ],
     ),
   );
@@ -306,17 +336,21 @@ class VitaHeader extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                if (eyebrow != null) Text(eyebrow!, style: TextStyle(fontSize: 17, color: p.muted)),
+                if (eyebrow != null)
+                  Text(
+                    eyebrow!,
+                    style: TextStyle(fontSize: 17, color: p.muted),
+                  ),
                 Text(
                   title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(fontSize: titleSize, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    fontSize: titleSize,
+                    fontWeight: FontWeight.w900,
+                  ),
                 ),
-                if (badge != null) ...[
-                  const SizedBox(height: 6),
-                  badge!,
-                ],
+                if (badge != null) ...[const SizedBox(height: 6), badge!],
               ],
             ),
           ),
@@ -341,7 +375,10 @@ class VitaCard extends StatelessWidget {
     this.padding,
     this.onTap,
     this.tone,
-  }) : assert((child == null) != (children == null), 'Usa solo child o solo children');
+  }) : assert(
+         (child == null) != (children == null),
+         'Usa solo child o solo children',
+       );
 
   final Widget? child;
   final List<Widget>? children;
@@ -355,13 +392,21 @@ class VitaCard extends StatelessWidget {
     final p = context.vita;
     final radius = BorderRadius.circular(VitaRadius.lg);
     final body = child ?? Column(children: children!);
-    final content = padding == null ? body : Padding(padding: padding!, child: body);
+    final content = padding == null
+        ? body
+        : Padding(padding: padding!, child: body);
     return Container(
       width: double.infinity,
       decoration: BoxDecoration(
         borderRadius: radius,
         boxShadow: colors == null && !p.isDark
-            ? [BoxShadow(color: Colors.black.withValues(alpha: 0.04), blurRadius: 12, offset: const Offset(0, 4))]
+            ? [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.04),
+                  blurRadius: 12,
+                  offset: const Offset(0, 4),
+                ),
+              ]
             : null,
       ),
       child: Material(
@@ -408,7 +453,11 @@ class VitaPill extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           if (dot) ...[
-            Container(width: 9, height: 9, decoration: BoxDecoration(color: c.fg, shape: BoxShape.circle)),
+            Container(
+              width: 9,
+              height: 9,
+              decoration: BoxDecoration(color: c.fg, shape: BoxShape.circle),
+            ),
             const SizedBox(width: VitaSpace.sm),
           ],
           if (icon != null) ...[
@@ -416,7 +465,14 @@ class VitaPill extends StatelessWidget {
             const SizedBox(width: 6),
           ],
           Flexible(
-            child: Text(label, style: TextStyle(color: c.fg, fontSize: 15, fontWeight: FontWeight.w800)),
+            child: Text(
+              label,
+              style: TextStyle(
+                color: c.fg,
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
           ),
         ],
       ),
@@ -470,7 +526,14 @@ class VitaStatTile extends StatelessWidget {
             const SizedBox(height: 10),
             Text(label, style: TextStyle(fontSize: 15, color: p.muted)),
             const SizedBox(height: 2),
-            Text(value, style: TextStyle(fontSize: 22, fontWeight: FontWeight.w900, color: c.fg)),
+            Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                fontWeight: FontWeight.w900,
+                color: c.fg,
+              ),
+            ),
           ],
         ),
       ),
@@ -480,7 +543,11 @@ class VitaStatTile extends StatelessWidget {
 
 /// Opción de la barra inferior.
 class VitaNavItem {
-  const VitaNavItem({required this.icon, required this.selectedIcon, required this.label});
+  const VitaNavItem({
+    required this.icon,
+    required this.selectedIcon,
+    required this.label,
+  });
 
   final IconData icon;
   final IconData selectedIcon;
@@ -505,7 +572,9 @@ class VitaNavBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return DecoratedBox(
-      decoration: BoxDecoration(border: Border(top: BorderSide(color: context.vita.border))),
+      decoration: BoxDecoration(
+        border: Border(top: BorderSide(color: context.vita.border)),
+      ),
       child: NavigationBar(
         selectedIndex: selectedIndex,
         onDestinationSelected: onSelected,
@@ -523,13 +592,16 @@ class VitaNavBar extends StatelessWidget {
 }
 
 const consentText =
-    'Autorizo el tratamiento de mis datos personales conforme a la Ley 1581 de 2012 (Habeas Data). '
-    'App VITA usa nombre, teléfono, fecha de nacimiento y contactos de apoyo para el servicio de acompañamiento. '
-    'Las videollamadas no se graban. Puedo solicitar la eliminación de mis datos.';
+    'Autorizo a VITA a usar mis datos personales para crear y administrar mi cuenta, '
+    'conectarme con otras personas y atender solicitudes de ayuda. Esta autorización '
+    'no permite grabar automáticamente mis llamadas. Una grabación requiere una solicitud '
+    'durante la llamada y la aceptación de ambas personas.';
 
 const termsText =
-    'El acompañamiento es social y conversacional. No sustituye atención médica, psicológica ni la línea 123. '
-    'No compartas dirección, dinero, claves ni códigos. No contactes a la otra persona fuera de la app.';
+    'VITA facilita conversaciones de acompañamiento social; no es un servicio médico, '
+    'psicológico ni de emergencias. No compartas dinero, claves, códigos ni datos que '
+    'te hagan sentir inseguro. Si necesitas ayuda urgente, llama al 123. Las llamadas '
+    'solo se graban si ambas personas aceptan la solicitud de grabación.';
 
 const conductText =
     'Código de conducta: no pedir dinero, claves, códigos ni datos sensibles; no contactar al adulto mayor '

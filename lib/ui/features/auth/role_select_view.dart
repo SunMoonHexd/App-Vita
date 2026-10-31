@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/features/auth/coordinator_login_view.dart';
+import 'package:vita_app/ui/features/psychologist/psychologist_login_view.dart';
 import 'package:vita_app/ui/features/elderly/elderly_gate_view.dart';
 import 'package:vita_app/ui/features/volunteer/volunteer_gate_view.dart';
 
@@ -79,7 +80,7 @@ class RoleSelectView extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(22, 24, 22, 28),
                 children: [
                   _RoleCard(
-                    emoji: '🧓',
+                    image: 'assets/images/role_elderly.png',
                     title: 'Soy adulto mayor',
                     subtitle: 'Quiero conversar con alguien y recibir compañía',
                     pill: '60+ años',
@@ -88,7 +89,7 @@ class RoleSelectView extends StatelessWidget {
                   ),
                   const SizedBox(height: 18),
                   _RoleCard(
-                    emoji: '🤝',
+                    image: 'assets/images/role_volunteer.png',
                     title: 'Soy voluntario',
                     subtitle: 'Quiero acompañar y ofrecer mi tiempo',
                     pill: 'Mayor de 18 años',
@@ -125,6 +126,14 @@ class RoleSelectView extends StatelessWidget {
                       label: const Text('Entrar como coordinación'),
                     ),
                   ),
+                  Center(
+                    child: TextButton.icon(
+                      style: TextButton.styleFrom(foregroundColor: VitaColors.slate),
+                      onPressed: () => _go(context, const PsychologistLoginView()),
+                      icon: const Icon(Icons.psychology_alt_outlined),
+                      label: const Text('Entrar como profesional de apoyo'),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -137,7 +146,7 @@ class RoleSelectView extends StatelessWidget {
 
 class _RoleCard extends StatelessWidget {
   const _RoleCard({
-    required this.emoji,
+    required this.image,
     required this.title,
     required this.subtitle,
     required this.pill,
@@ -145,7 +154,7 @@ class _RoleCard extends StatelessWidget {
     required this.onTap,
   });
 
-  final String emoji;
+  final String image;
   final String title;
   final String subtitle;
   final String pill;
@@ -181,21 +190,32 @@ class _RoleCard extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             child: Padding(
-              padding: const EdgeInsets.all(20),
+              padding: const EdgeInsets.all(14),
               child: Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 72,
-                    height: 72,
-                    alignment: Alignment.center,
+                    width: 104,
+                    height: 112,
+                    padding: const EdgeInsets.all(4),
                     decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.22),
-                      borderRadius: BorderRadius.circular(22),
+                      color: Colors.white.withValues(alpha: 0.45),
+                      borderRadius: BorderRadius.circular(24),
                     ),
-                    child: Text(emoji, style: const TextStyle(fontSize: 38)),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(20),
+                      child: Image.asset(
+                        image,
+                        fit: BoxFit.cover,
+                        cacheWidth: 312,
+                        errorBuilder: (_, __, ___) => const ColoredBox(
+                          color: Colors.white24,
+                          child: Icon(Icons.people_alt_rounded, color: Colors.white, size: 42),
+                        ),
+                      ),
+                    ),
                   ),
-                  const SizedBox(width: 16),
+                  const SizedBox(width: 14),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
@@ -204,7 +224,7 @@ class _RoleCard extends StatelessWidget {
                           title,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 24,
+                            fontSize: 21,
                             fontWeight: FontWeight.w800,
                             height: 1.1,
                           ),
@@ -214,14 +234,14 @@ class _RoleCard extends StatelessWidget {
                           subtitle,
                           style: const TextStyle(
                             color: Colors.white,
-                            fontSize: 17,
+                            fontSize: 15,
                             fontWeight: FontWeight.w600,
                             height: 1.3,
                           ),
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 10),
                         Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                           decoration: BoxDecoration(
                             color: Colors.white.withValues(alpha: 0.25),
                             borderRadius: BorderRadius.circular(20),
@@ -230,17 +250,13 @@ class _RoleCard extends StatelessWidget {
                             pill,
                             style: const TextStyle(
                               color: Colors.white,
-                              fontSize: 14,
+                              fontSize: 13,
                               fontWeight: FontWeight.w800,
                             ),
                           ),
                         ),
                       ],
                     ),
-                  ),
-                  const Padding(
-                    padding: EdgeInsets.only(top: 4),
-                    child: Icon(Icons.chevron_right_rounded, color: Colors.white, size: 32),
                   ),
                 ],
               ),

@@ -23,6 +23,11 @@ service cloud.firestore {
       return signedIn() && hasProfile()
         && profile().role == 'volunteer' && profile().status == 'active';
     }
+    // Profesional de apoyo psicológico. Solo cuenta si coordinación ya lo activó.
+    function isPsychologist() {
+      return signedIn() && hasProfile()
+        && profile().role == 'psychologist' && profile().status == 'active';
+    }
     function changedOnly(keys) {
       return request.resource.data.diff(resource.data).affectedKeys().hasOnly(keys);
     }
@@ -31,9 +36,10 @@ service cloud.firestore {
     match /users/{userId} {
       allow read: if signedIn();
       allow create: if signedIn() && uid() == userId
-        && request.resource.data.role in ['elderly', 'volunteer']
+        && request.resource.data.role in ['elderly', 'volunteer', 'psychologist']
+        // Voluntarios y psicólogos nacen "pending": solo coordinación los activa.
         && request.resource.data.status ==
-           (request.resource.data.role == 'volunteer' ? 'pending' : 'active')
+           (request.resource.data.role in ['volunteer', 'psychologist'] ? 'pending' : 'active')
         && request.resource.data.get('emailVerified', false) == false;
       allow update: if signedIn() && (
         // RF3: coordinación no puede activar a un voluntario pendiente si su correo no está verificado.
@@ -91,6 +97,40 @@ service cloud.firestore {
       // Coordinación puede anonimizar registros vencidos sin editar otros campos.
       allow update: if isCoordinator()
         && changedOnly(['elderlyId', 'volunteerId', 'roomName', 'joinCode']);
+    }
+
+    // Apoyo psicológico: el voluntario pide que un psicólogo se una a su llamada en curso.
+    match /supportRequests/{id} {
+      // Solo se puede pedir apoyo para una llamada propia, conectada y con esa misma sala.
+      allow create: if isActiveVolunteer()
+        && request.resource.data.requestedById == uid()
+        && request.resource.data.status == 'open'
+        && request.resource.data.get('psychologistId', null) == null
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.callId)).data.volunteerId == uid()
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.callId)).data.status == 'connected'
+        && get(/databases/$(database)/documents/requests/$(request.resource.data.callId)).data.roomName
+           == request.resource.data.roomName;
+      allow read: if isCoordinator() || isPsychologist()
+        || (signedIn() && resource.data.requestedById == uid());
+      // El voluntario puede cancelar su solicitud mientras nadie la haya tomado.
+      allow update: if signedIn() && resource.data.requestedById == uid()
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'cancelled'
+        && changedOnly(['status', 'closedAt']);
+      // Un psicólogo la toma (solo si sigue abierta) y luego la cierra.
+      allow update: if isPsychologist()
+        && resource.data.status == 'open'
+        && request.resource.data.status == 'accepted'
+        && request.resource.data.psychologistId == uid()
+        && changedOnly(['status', 'psychologistId', 'acceptedAt']);
+      allow update: if isPsychologist()
+        && resource.data.psychologistId == uid()
+        && resource.data.status == 'accepted'
+        && request.resource.data.status == 'closed'
+        && changedOnly(['status', 'closedAt']);
+      // Coordinación anonimiza solicitudes vencidas (F18.7).
+      allow update: if isCoordinator()
+        && changedOnly(['requestedById', 'elderlyId', 'roomName', 'psychologistId', 'note']);
     }
 
     match /reports/{reportId} {

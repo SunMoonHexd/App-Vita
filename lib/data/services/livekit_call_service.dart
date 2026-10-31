@@ -30,6 +30,7 @@ class LiveKitCallService extends ChangeNotifier {
   String? _reconnectMessage;
   bool _micOn = true;
   bool _camOn = true;
+  bool _audioOnly = false;
   bool _micNeedsRetry = false;
   bool _camNeedsRetry = false;
   bool _micChanging = false;
@@ -56,6 +57,7 @@ class LiveKitCallService extends ChangeNotifier {
   String? get reconnectMessage => _reconnectMessage;
   bool get micOn => _micOn;
   bool get camOn => _camOn;
+  bool get audioOnly => _audioOnly;
   bool get micNeedsRetry => _micNeedsRetry;
   bool get camNeedsRetry => _camNeedsRetry;
   DateTime? get joinedAt => _joinedAt;
@@ -179,6 +181,9 @@ class LiveKitCallService extends ChangeNotifier {
     required String displayName,
     required String userId,
     String? profilePhotoBase64,
+    String? supportRequestId,
+    String? announceAs,
+    bool audioOnly = false,
     required VoidCallback onTerminated,
     VoidCallback? onInterrupted,
   }) async {
@@ -194,7 +199,8 @@ class LiveKitCallService extends ChangeNotifier {
     _reconnecting = false;
     _reconnectMessage = null;
     _micOn = true;
-    _camOn = true;
+    _audioOnly = audioOnly;
+    _camOn = !audioOnly;
     _micNeedsRetry = false;
     _camNeedsRetry = false;
     _micChanging = false;
@@ -211,6 +217,7 @@ class LiveKitCallService extends ChangeNotifier {
       roomName: roomName,
       requestId: requestId,
       displayName: displayName,
+      supportRequestId: supportRequestId,
     );
 
     final room = Room(
@@ -242,9 +249,20 @@ class LiveKitCallService extends ChangeNotifier {
       throw Exception('No se pudo conectar con LiveKit ($e).');
     }
 
+    // Un profesional de apoyo avisa a quienes ya están en la llamada, para que nadie se sorprenda.
+    if (announceAs != null) {
+      unawaited(
+        _send({'t': 'support_joined', 'name': announceAs}).catchError(
+          (Object e) => debugPrint('LiveKit: no se pudo avisar el ingreso: $e'),
+        ),
+      );
+    }
+
     // Si falla un dispositivo, la llamada sigue y se ofrecen reintentos (F6.12).
     final micOk = await _openDevice(mic: true, delays: const []);
-    final camOk = await _openDevice(mic: false, delays: const []);
+    final camOk = audioOnly
+        ? true
+        : await _openDevice(mic: false, delays: const []);
     if (!micOk || !camOk) {
       CallNotice.show(
         !micOk && !camOk
@@ -716,6 +734,9 @@ class LiveKitCallService extends ChangeNotifier {
       return;
     }
     switch (msg['t']) {
+      case 'support_joined':
+        final who = (msg['name'] as String?) ?? 'Un profesional de apoyo';
+        CallNotice.show('$who, profesional de apoyo, se unió a la llamada.');
       case 'rec_request':
         if (_phase != RecordingPhase.idle) return;
         _requesterName = (msg['name'] as String?) ?? 'La otra persona';

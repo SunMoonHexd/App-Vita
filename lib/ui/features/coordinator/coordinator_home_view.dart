@@ -53,6 +53,24 @@ class CoordinatorHomeView extends StatelessWidget {
             color: VitaColors.secondary,
             onPressed: () => _resetPin(context),
           ),
+          const SizedBox(height: 10),
+          VitaPrimaryButton(
+            label: 'Crear profesional de apoyo',
+            color: VitaColors.secondary,
+            onPressed: () => _createPsychologist(context),
+          ),
+          const Divider(),
+          const Text('Apoyo psicológico', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          if (repo.supportRequests.isEmpty) const Text('Aún no hay solicitudes de apoyo.'),
+          for (final r in (repo.supportRequests.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt))).take(10))
+            ListTile(
+              title: Text('${_supportLabel(r.status)} · ${r.createdAt.toLocal().toString().substring(0, 16)}'),
+              subtitle: Text(
+                'Pidió: ${repo.userById(r.requestedById)?.displayName ?? '—'}\n'
+                'Profesional: ${r.psychologistId == null ? 'sin asignar' : (repo.userById(r.psychologistId!)?.displayName ?? '—')}',
+              ),
+              isThreeLine: true,
+            ),
           const Divider(),
           const Text('Voluntarios pendientes', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           if (pending.isEmpty) const Text('No hay solicitudes nuevas.'),
@@ -138,6 +156,50 @@ class CoordinatorHomeView extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static String _supportLabel(SupportStatus s) => switch (s) {
+        SupportStatus.open => 'Abierta',
+        SupportStatus.accepted => 'En curso',
+        SupportStatus.closed => 'Cerrada',
+        SupportStatus.cancelled => 'Cancelada',
+      };
+
+  Future<void> _createPsychologist(BuildContext context) async {
+    final name = TextEditingController();
+    final email = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Crear profesional de apoyo'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text(
+              'Verifica antes su identidad y su título. Recibirá un correo para elegir su contraseña.',
+            ),
+            const SizedBox(height: 12),
+            TextField(controller: name, textCapitalization: TextCapitalization.words, decoration: const InputDecoration(labelText: 'Nombre completo')),
+            TextField(controller: email, keyboardType: TextInputType.emailAddress, decoration: const InputDecoration(labelText: 'Correo')),
+          ],
+        ),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancelar')),
+          TextButton(onPressed: () => Navigator.pop(context, true), child: const Text('Crear')),
+        ],
+      ),
+    );
+    if (ok != true || !context.mounted) return;
+    try {
+      await VitaScope.of(context).createPsychologist(name: name.text, email: email.text);
+      if (context.mounted) {
+        await showVitaMessage(context, 'Cuenta creada. Le enviamos un correo para que elija su contraseña.');
+      }
+    } catch (e) {
+      if (context.mounted) {
+        await showVitaMessage(context, e.toString().replaceFirst('Exception: ', ''));
+      }
+    }
   }
 
   Future<void> _resetPin(BuildContext context) async {

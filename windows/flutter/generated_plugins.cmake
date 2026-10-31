@@ -10,6 +10,7 @@ list(APPEND FLUTTER_PLUGIN_LIST
   firebase_core
   flutter_webrtc
   livekit_client
+  local_auth_windows
   url_launcher_windows
 )
 

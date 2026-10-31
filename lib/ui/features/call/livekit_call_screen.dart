@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:livekit_client/livekit_client.dart';
 import 'package:vita_app/domain/call_health.dart';
+import 'package:vita_app/data/services/call_notice.dart';
 import 'package:vita_app/data/services/livekit_call_service.dart';
+import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
 
@@ -77,6 +80,99 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
     await _s.answerRecording(accept: accept ?? false);
   }
 
+  /// Solo el voluntario lo ve: pedir (o cancelar) que un psicólogo se una a esta llamada.
+  Widget _supportAction(BuildContext context) {
+    final repo = VitaScope.of(context);
+    final me = repo.currentUser;
+    if (me == null || me.role != UserRole.volunteer)
+      return const SizedBox.shrink();
+    final call = repo.requests
+        .where(
+          (r) =>
+              r.volunteerId == me.id && r.status == CallRequestStatus.connected,
+        )
+        .firstOrNull;
+    if (call == null) return const SizedBox.shrink();
+    final support = repo.activeSupportFor(call.id);
+    final String label;
+    final IconData icon;
+    if (support == null) {
+      label = 'Apoyo psicológico';
+      icon = Icons.favorite_border_rounded;
+    } else if (support.status == SupportStatus.open) {
+      label = 'Buscando psicólogo…';
+      icon = Icons.hourglass_top_rounded;
+    } else {
+      label = 'Psicólogo en camino';
+      icon = Icons.check_circle_outline_rounded;
+    }
+    return GestureDetector(
+      onTap: () => _onSupportTap(call, support),
+      child: _Pill(text: label, icon: icon),
+    );
+  }
+
+  Future<void> _onSupportTap(CallRequest call, SupportRequest? support) async {
+    final repo = VitaScope.of(context);
+    if (support == null) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('¿Pedir apoyo psicológico?'),
+          content: const Text(
+            'Un profesional de apoyo recibirá el aviso y podrá unirse a esta llamada. '
+            'Cuéntale a la persona con calma que alguien más va a acompañarlos, para que no se sorprenda.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Ahora no'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Pedir apoyo'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+      try {
+        await repo.requestPsychologistSupport(
+          callId: call.id,
+          note: 'El voluntario notó a la persona muy triste',
+        );
+        CallNotice.show(
+          'Pedimos apoyo psicológico. Seguimos contigo en la llamada.',
+          vibrate: false,
+        );
+      } catch (e) {
+        CallNotice.show(
+          e.toString().replaceFirst('Exception: ', ''),
+          vibrate: false,
+        );
+      }
+    } else if (support.status == SupportStatus.open) {
+      final cancel = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Estamos buscando un psicólogo'),
+          content: const Text('¿Quieres cancelar la solicitud?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Seguir esperando'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Cancelar solicitud'),
+            ),
+          ],
+        ),
+      );
+      if (cancel == true) await repo.cancelSupport(support.id);
+    }
+  }
+
   String _elapsed() {
     final start = _s.joinedAt;
     if (start == null) return '';
@@ -108,6 +204,7 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                         cameraOn: _s.remoteCamOn,
                         name: _s.remoteDisplayName,
                         photoBase64: _s.remotePhotoBase64,
+                        audioOnly: _s.audioOnly,
                       ),
               ),
               // Barra superior: tiempo y grabación.
@@ -118,6 +215,8 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                 child: Row(
                   children: [
                     _Pill(text: _elapsed(), icon: Icons.timer_outlined),
+                    const SizedBox(width: 8),
+                    _supportAction(context),
                     const Spacer(),
                     if (recording)
                       const _Pill(
@@ -193,38 +292,44 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                     children: [
-                      _CallButton(
-                        icon: _s.micOn ? Icons.mic : Icons.mic_off,
-                        label: _s.micNeedsRetry
-                            ? 'Reintentar'
-                            : (_s.micOn ? 'Micrófono' : 'Silenciado'),
-                        tooltip: _s.micNeedsRetry
-                            ? 'Reintentar activar el micrófono'
-                            : null,
-                        active: _s.micOn,
-                        onTap: _s.micNeedsRetry
-                            ? _s.retryMicrophone
-                            : _s.toggleMic,
+                      Expanded(
+                        child: _CallButton(
+                          icon: _s.micOn ? Icons.mic : Icons.mic_off,
+                          label: _s.micNeedsRetry
+                              ? 'Reintentar'
+                              : (_s.micOn ? 'Micrófono' : 'Silenciado'),
+                          tooltip: _s.micNeedsRetry
+                              ? 'Reintentar activar el micrófono'
+                              : null,
+                          active: _s.micOn,
+                          onTap: _s.micNeedsRetry
+                              ? _s.retryMicrophone
+                              : _s.toggleMic,
+                        ),
                       ),
-                      _CallButton(
-                        icon: _s.camOn ? Icons.videocam : Icons.videocam_off,
-                        label: _s.camNeedsRetry
-                            ? 'Reintentar'
-                            : (_s.camOn ? 'Cámara' : 'Sin cámara'),
-                        tooltip: _s.camNeedsRetry
-                            ? 'Reintentar activar la cámara'
-                            : null,
-                        active: _s.camOn,
-                        onTap: _s.camNeedsRetry
-                            ? _s.retryCamera
-                            : _s.toggleCamera,
+                      Expanded(
+                        child: _CallButton(
+                          icon: _s.camOn ? Icons.videocam : Icons.videocam_off,
+                          label: _s.camNeedsRetry
+                              ? 'Reintentar'
+                              : (_s.camOn ? 'Cámara' : 'Sin cámara'),
+                          tooltip: _s.camNeedsRetry
+                              ? 'Reintentar activar la cámara'
+                              : null,
+                          active: _s.camOn,
+                          onTap: _s.camNeedsRetry
+                              ? _s.retryCamera
+                              : _s.toggleCamera,
+                        ),
                       ),
-                      _recordButton(),
-                      _CallButton(
-                        icon: Icons.call_end,
-                        label: 'Colgar',
-                        color: VitaColors.alert,
-                        onTap: () async => _s.hangUp(),
+                      Expanded(child: _recordButton()),
+                      Expanded(
+                        child: _CallButton(
+                          icon: Icons.call_end,
+                          label: 'Colgar',
+                          color: VitaColors.alert,
+                          onTap: () async => _s.hangUp(),
+                        ),
                       ),
                     ],
                   ),
@@ -282,12 +387,14 @@ class _Waiting extends StatelessWidget {
     required this.connected,
     required this.cameraOn,
     required this.name,
+    required this.audioOnly,
     this.photoBase64,
   });
 
   final bool connected;
   final bool? cameraOn;
   final String name;
+  final bool audioOnly;
   final String? photoBase64;
 
   @override
@@ -301,6 +408,8 @@ class _Waiting extends StatelessWidget {
           Text(
             !connected
                 ? 'Esperando a la otra persona…'
+                : audioOnly && cameraOn != true
+                ? 'Esta llamada es solo de voz'
                 : cameraOn == false
                 ? '$name tiene la cámara apagada'
                 : 'Conectando el video de la otra persona…',
@@ -515,15 +624,28 @@ class _CallButton extends StatelessWidget {
               customBorder: const CircleBorder(),
               onTap: onTap == null ? null : () => onTap!(),
               child: SizedBox(
-                width: 64,
-                height: 64,
+                width: 68,
+                height: 68,
                 child: Icon(icon, size: 30, color: foreground),
               ),
             ),
           ),
         ),
         const SizedBox(height: 6),
-        Text(label, style: const TextStyle(color: Colors.white, fontSize: 13)),
+        SizedBox(
+          height: 36,
+          child: Text(
+            label,
+            textAlign: TextAlign.center,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 14,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ),
       ],
     );
   }

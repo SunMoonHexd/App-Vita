@@ -70,5 +70,7 @@
 	<string>VITA usa la cámara para tu foto de perfil y para las videollamadas.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>VITA necesita acceder a tus fotos para que elijas tu foto de perfil.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>VITA usa Face ID para proteger el acceso a tu sesión.</string>
 </dict>
 </plist>

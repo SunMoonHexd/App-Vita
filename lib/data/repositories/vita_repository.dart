@@ -80,6 +80,13 @@ class VitaRepository extends ChangeNotifier {
       (s) => s.toJson(),
       CallSurvey.fromJson,
     );
+    _supportsSync = _Sync<SupportRequest>(
+      'supportRequests',
+      _supports,
+      (s) => s.id,
+      (s) => s.toJson(),
+      SupportRequest.fromJson,
+    );
     _slotsSync = _Sync<AvailabilitySlot>(
       'slots',
       _slots,
@@ -117,12 +124,14 @@ class VitaRepository extends ChangeNotifier {
   final List<EmergencyAlert> _alerts = [];
   final List<CallSurvey> _surveys = [];
   final List<AvailabilitySlot> _slots = [];
+  final List<SupportRequest> _supports = [];
 
   late final _Sync<CallRequest> _requestsSync;
   late final _Sync<UserReport> _reportsSync;
   late final _Sync<EmergencyAlert> _alertsSync;
   late final _Sync<CallSurvey> _surveysSync;
   late final _Sync<AvailabilitySlot> _slotsSync;
+  late final _Sync<SupportRequest> _supportsSync;
 
   // Usuarios: parte pública (users/{id}) y parte privada (private/{id}).
   final Map<String, Map<String, dynamic>> _pubById = {};
@@ -155,6 +164,7 @@ class VitaRepository extends ChangeNotifier {
 
   List<UserReport> get reports => List.unmodifiable(_reports);
   List<EmergencyAlert> get alerts => List.unmodifiable(_alerts);
+  List<SupportRequest> get supportRequests => List.unmodifiable(_supports);
 
   List<AvailabilitySlot> slotsFor(String volunteerId) =>
       _slots.where((s) => s.volunteerId == volunteerId).toList();
@@ -274,6 +284,7 @@ class VitaRepository extends ChangeNotifier {
     _alerts.clear();
     _surveys.clear();
     _slots.clear();
+    _supports.clear();
     _pubById.clear();
     _privById.clear();
     _syncedPub.clear();
@@ -284,6 +295,7 @@ class VitaRepository extends ChangeNotifier {
       _alertsSync,
       _surveysSync,
       _slotsSync,
+      _supportsSync,
     ]) {
       s.synced.clear();
     }
@@ -296,7 +308,8 @@ class VitaRepository extends ChangeNotifier {
     if (user.status == AccountStatus.suspended) {
       return const AuthResult.error('Esta cuenta está suspendida.');
     }
-    if (user.role == UserRole.volunteer &&
+    if ((user.role == UserRole.volunteer ||
+            user.role == UserRole.psychologist) &&
         user.status == AccountStatus.pending) {
       return const AuthResult.error(
         'Tu cuenta sigue pendiente de verificación.',
@@ -539,6 +552,20 @@ class VitaRepository extends ChangeNotifier {
       role: UserRole.volunteer,
       wrong: 'Correo o contraseña incorrectos.',
       lockKey: _volunteerLockKey(email),
+    );
+  }
+
+  /// Profesional de apoyo psicológico. No se registra solo: coordinación crea la cuenta.
+  Future<AuthResult> loginPsychologist({
+    required String email,
+    required String password,
+  }) {
+    return _login(
+      email: email.trim(),
+      password: password,
+      role: UserRole.psychologist,
+      wrong: 'Correo o contraseña incorrectos.',
+      lockKey: 'psychologist:${email.trim().toLowerCase()}',
     );
   }
 
@@ -1131,7 +1158,7 @@ class VitaRepository extends ChangeNotifier {
   // Llamadas
   // ---------------------------------------------------------------------------
 
-  Future<CallRequest> startCallRequest() async {
+  Future<CallRequest> startCallRequest({bool audioOnly = false}) async {
     final user = currentUser;
     if (user == null || user.role != UserRole.elderly) {
       throw Exception('Debes ingresar como adulto mayor.');
@@ -1183,6 +1210,7 @@ class VitaRepository extends ChangeNotifier {
       joinCode: code,
       status: CallRequestStatus.searching,
       createdAt: _now(),
+      audioOnly: audioOnly,
     );
     _requests.add(request);
     await _commit();
@@ -1214,12 +1242,13 @@ class VitaRepository extends ChangeNotifier {
   /// RF35 – "Llamar de nuevo": crea una solicitud nueva que prefiere al mismo voluntario si sigue
   /// disponible; si no, el emparejamiento normal busca a otro.
   Future<CallRequest> recallAfterInterruption(
-    String interruptedRequestId,
-  ) async {
+    String interruptedRequestId, {
+    bool audioOnly = false,
+  }) async {
     final i = _requests.indexWhere((r) => r.id == interruptedRequestId);
     _preferredVolunteerId = i < 0 ? null : _requests[i].volunteerId;
     try {
-      return await startCallRequest();
+      return await startCallRequest(audioOnly: audioOnly);
     } finally {
       _preferredVolunteerId = null;
     }
@@ -1411,6 +1440,7 @@ class VitaRepository extends ChangeNotifier {
         displayName: user.displayName,
         userId: user.id,
         profilePhotoBase64: user.photoBase64,
+        audioOnly: request.audioOnly,
         onTerminated: () {
           _callInProgressId = null;
           finishCall(request.id);
@@ -1445,6 +1475,245 @@ class VitaRepository extends ChangeNotifier {
         status == CallRequestStatus.cancelled) {
       _callInProgressId = null;
       _jitsi.hangUp();
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Apoyo psicológico dentro de la llamada
+  //
+  //  1. El voluntario nota a la persona muy triste y pulsa "Pedir apoyo psicológico".
+  //  2. Se crea una SupportRequest (open) con la sala de la llamada.
+  //  3. Un psicólogo la acepta (solo uno; se decide con una transacción) y entra a la sala.
+  //  4. Al terminar, el psicólogo (o el voluntario) la cierra.
+  // ---------------------------------------------------------------------------
+
+  /// Solicitud de apoyo activa (abierta o aceptada) de una llamada, si hay.
+  SupportRequest? activeSupportFor(String callId) => _supports
+      .where(
+        (s) =>
+            s.callId == callId &&
+            (s.status == SupportStatus.open ||
+                s.status == SupportStatus.accepted),
+      )
+      .firstOrNull;
+
+  /// Solicitudes que un psicólogo puede tomar ahora, la más antigua primero.
+  List<SupportRequest> get openSupportRequests =>
+      _supports.where((s) => s.status == SupportStatus.open).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+  /// Solicitudes que este psicólogo ya aceptó y siguen en curso.
+  List<SupportRequest> get mySupportInProgress {
+    final me = currentUser;
+    if (me == null) return const [];
+    return _supports
+        .where(
+          (s) =>
+              s.status == SupportStatus.accepted && s.psychologistId == me.id,
+        )
+        .toList();
+  }
+
+  /// El voluntario pide que un psicólogo se una a la llamada [callId].
+  Future<SupportRequest> requestPsychologistSupport({
+    required String callId,
+    String? note,
+  }) async {
+    final me = currentUser;
+    if (me == null || me.role != UserRole.volunteer) {
+      throw Exception('Solo un voluntario puede pedir apoyo psicológico.');
+    }
+    final call = _requests.where((r) => r.id == callId).firstOrNull;
+    if (call == null || call.volunteerId != me.id) {
+      throw Exception('Esa llamada no es tuya.');
+    }
+    if (call.status != CallRequestStatus.connected) {
+      throw Exception(
+        'Solo se puede pedir apoyo durante una llamada en curso.',
+      );
+    }
+    final existing = activeSupportFor(callId);
+    if (existing != null) return existing;
+    final request = SupportRequest(
+      id: _uuid.v4(),
+      callId: callId,
+      roomName: call.roomName,
+      requestedById: me.id,
+      elderlyId: call.elderlyId,
+      note: note,
+      createdAt: _now(),
+    );
+    _supports.add(request);
+    await _commit();
+    return request;
+  }
+
+  /// El voluntario cancela la solicitud (por ejemplo, la persona ya se sintió mejor).
+  Future<void> cancelSupport(String id) async {
+    final i = _supports.indexWhere((s) => s.id == id);
+    if (i < 0) return;
+    final s = _supports[i];
+    if (s.status != SupportStatus.open) return;
+    _supports[i] = s.copyWith(
+      status: SupportStatus.cancelled,
+      closedAt: _now(),
+    );
+    await _commit();
+  }
+
+  /// Un psicólogo toma la solicitud. Con transacción, para que dos no la acepten a la vez.
+  Future<SupportRequest> acceptSupport(String id) async {
+    final me = currentUser;
+    if (me == null || me.role != UserRole.psychologist) {
+      throw Exception('Solo un psicólogo puede aceptar esta solicitud.');
+    }
+    final ref = _db.collection('supportRequests').doc(id);
+    final now = _now();
+    await _db.runTransaction((tx) async {
+      final snap = await tx.get(ref);
+      final data = snap.data();
+      if (data == null) throw Exception('La solicitud ya no existe.');
+      if (data['status'] != SupportStatus.open.name) {
+        throw Exception('Otro profesional ya tomó esta solicitud.');
+      }
+      tx.update(ref, {
+        'status': SupportStatus.accepted.name,
+        'psychologistId': me.id,
+        'acceptedAt': vitaIso(now),
+      });
+    });
+    final i = _supports.indexWhere((s) => s.id == id);
+    if (i < 0) throw Exception('Solicitud no encontrada.');
+    final updated = _supports[i].copyWith(
+      status: SupportStatus.accepted,
+      psychologistId: me.id,
+      acceptedAt: now,
+    );
+    _supports[i] = updated;
+    _supportsSync.synced[id] = updated.toJson();
+    notifyListeners();
+    return updated;
+  }
+
+  /// El psicólogo entra a la sala de la llamada. Termina cuando sale.
+  Future<void> joinSupportCall(String supportId) async {
+    final me = currentUser;
+    final i = _supports.indexWhere((s) => s.id == supportId);
+    if (me == null || me.role != UserRole.psychologist || i < 0) {
+      throw Exception('No hay una solicitud de apoyo para unirte.');
+    }
+    final support = _supports[i];
+    if (support.status != SupportStatus.accepted ||
+        support.psychologistId != me.id) {
+      throw Exception('Primero debes aceptar la solicitud.');
+    }
+    if (!await InternetConnectivityService.hasInternetConnection()) {
+      throw Exception('No hay conexión a internet para entrar a la llamada.');
+    }
+    final call = requests.cast<CallRequest?>().firstWhere(
+      (request) => request?.id == support.callId,
+      orElse: () => null,
+    );
+    await _jitsi.join(
+      roomName: support.roomName,
+      requestId: support.callId,
+      supportRequestId: support.id,
+      announceAs: me.displayName,
+      displayName: me.displayName,
+      userId: me.id,
+      profilePhotoBase64: me.photoBase64,
+      audioOnly: call?.audioOnly ?? false,
+      // Al salir, el psicólogo cierra su participación; la llamada del voluntario sigue o termina sola.
+      onTerminated: () => closeSupport(supportId),
+      onInterrupted: () => closeSupport(supportId),
+    );
+  }
+
+  /// Cierra la solicitud (la llamada de apoyo terminó).
+  Future<void> closeSupport(String id) async {
+    final i = _supports.indexWhere((s) => s.id == id);
+    if (i < 0) return;
+    final s = _supports[i];
+    if (s.status == SupportStatus.closed ||
+        s.status == SupportStatus.cancelled) {
+      return;
+    }
+    _supports[i] = s.copyWith(status: SupportStatus.closed, closedAt: _now());
+    await _commit();
+  }
+
+  /// Coordinación crea la cuenta de un psicólogo (nadie se registra solo como profesional).
+  /// Se usa una app secundaria de Firebase para no cerrar la sesión de coordinación, y se
+  /// envía un correo para que el profesional elija su propia contraseña.
+  Future<void> createPsychologist({
+    required String name,
+    required String email,
+    String? phone,
+  }) async {
+    final actor = currentUser;
+    if (actor == null || actor.role != UserRole.coordinator) {
+      throw Exception('Solo coordinación puede crear profesionales de apoyo.');
+    }
+    final cleanName = name.trim();
+    final cleanEmail = email.trim();
+    if (cleanName.length < 3) throw Exception('Escribe el nombre completo.');
+    if (!cleanEmail.contains('@') || !cleanEmail.contains('.')) {
+      throw Exception('Revisa el correo.');
+    }
+    final app = await _pinResetApp();
+    final auth = FirebaseAuth.instanceFor(app: app);
+    final db = FirebaseFirestore.instanceFor(app: app);
+    try {
+      // Contraseña temporal aleatoria: nadie la conoce; el profesional la cambia por correo.
+      final temp = '${_uuid.v4()}${_uuid.v4()}'
+          .replaceAll('-', '')
+          .substring(0, 24);
+      final cred = await auth.createUserWithEmailAndPassword(
+        email: cleanEmail,
+        password: temp,
+      );
+      final user = VitaUser(
+        id: cred.user!.uid,
+        role: UserRole.psychologist,
+        displayName: cleanName,
+        // Nace "pendiente" (lo exigen las reglas de Firestore); coordinación la activa abajo.
+        status: AccountStatus.pending,
+        phone: phone?.trim(),
+        email: cleanEmail,
+        consentAccepted: true,
+        conductAccepted: true,
+        inductionDone: true,
+        onboardingDone: true,
+        createdAt: _now(),
+      );
+      await db
+          .collection('users')
+          .doc(user.id)
+          .set(_publicJson(user))
+          .timeout(const Duration(seconds: 15));
+      await db
+          .collection('private')
+          .doc(user.id)
+          .set(_privateJson(user))
+          .timeout(const Duration(seconds: 15));
+      // Ahora coordinación (sesión principal) activa la cuenta.
+      await _db
+          .collection('users')
+          .doc(user.id)
+          .set({'status': AccountStatus.active.name}, SetOptions(merge: true))
+          .timeout(const Duration(seconds: 15));
+      await auth.sendPasswordResetEmail(email: cleanEmail);
+      unawaited(_audit('psychologist_created', targetId: user.id));
+    } on FirebaseAuthException catch (e) {
+      throw Exception(
+        e.code == 'email-already-in-use'
+            ? 'Ese correo ya está registrado.'
+            : _authMessage(e, wrong: 'No se pudo crear la cuenta.'),
+      );
+    } finally {
+      try {
+        await auth.signOut();
+      } catch (_) {}
     }
   }
 
@@ -1748,6 +2017,13 @@ class VitaRepository extends ChangeNotifier {
         count++;
       }
     }
+    for (var i = 0; i < _supports.length; i++) {
+      final sp = _supports[i];
+      if (!sp.isAnonymized && isExpired(sp.createdAt, now, retentionDays)) {
+        _supports[i] = sp.anonymized();
+        count++;
+      }
+    }
     if (count > 0) {
       await _commit();
       unawaited(_audit('data_anonymized', detail: '$count registros'));
@@ -1996,6 +2272,7 @@ class VitaRepository extends ChangeNotifier {
     collect(_reportsSync);
     collect(_alertsSync);
     collect(_surveysSync);
+    collect(_supportsSync);
     collect(_slotsSync, deleteMissing: true);
 
     if (writes.isNotEmpty) await Future.wait(writes);
@@ -2052,6 +2329,10 @@ class VitaRepository extends ChangeNotifier {
         _db.collection('surveys'),
         (snap) => _applySnapshot(_surveysSync, snap),
       );
+      _listen(
+        _db.collection('supportRequests'),
+        (snap) => _applySnapshot(_supportsSync, snap),
+      );
     } else {
       _subs.add(
         _db
@@ -2060,11 +2341,27 @@ class VitaRepository extends ChangeNotifier {
             .snapshots()
             .listen(_onPrivateOne, onError: _onSyncError),
       );
-      final field = role == UserRole.elderly ? 'elderlyId' : 'volunteerId';
-      _listen(_db.collection('requests').where(field, isEqualTo: me), (snap) {
-        _applySnapshot(_requestsSync, snap);
-        _hangUpIfEnded();
-      });
+      if (role == UserRole.psychologist) {
+        // El psicólogo solo ve solicitudes de apoyo, no las llamadas de los demás.
+        _listen(
+          _db.collection('supportRequests'),
+          (snap) => _applySnapshot(_supportsSync, snap),
+        );
+      } else {
+        final field = role == UserRole.elderly ? 'elderlyId' : 'volunteerId';
+        _listen(_db.collection('requests').where(field, isEqualTo: me), (snap) {
+          _applySnapshot(_requestsSync, snap);
+          _hangUpIfEnded();
+        });
+        if (role == UserRole.volunteer) {
+          _listen(
+            _db
+                .collection('supportRequests')
+                .where('requestedById', isEqualTo: me),
+            (snap) => _applySnapshot(_supportsSync, snap),
+          );
+        }
+      }
     }
   }
 

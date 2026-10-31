@@ -1,8 +1,16 @@
-enum UserRole { elderly, volunteer, coordinator }
+enum UserRole { elderly, volunteer, coordinator, psychologist }
 
 enum AccountStatus { pending, active, suspended, blocked, deleted }
 
-enum CallRequestStatus { searching, ringing, connected, cancelled, expired, completed, interrupted }
+enum CallRequestStatus {
+  searching,
+  ringing,
+  connected,
+  cancelled,
+  expired,
+  completed,
+  interrupted,
+}
 
 enum ReportStatus { pending, archived, warned, suspended, blocked }
 
@@ -56,9 +64,11 @@ class VitaUser {
   final int failedAttempts;
   final DateTime? lockedUntil;
   final DateTime? lastCallAt;
+
   /// Último "latido" del voluntario: sirve para saber si de verdad tiene la app abierta.
   final DateTime? lastSeenAt;
   final DateTime? createdAt;
+
   /// RF3: el voluntario confirmó que el correo es suyo (lo certifica Firebase Auth).
   final bool emailVerified;
 
@@ -119,32 +129,32 @@ class VitaUser {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'role': role.name,
-        'displayName': displayName,
-        'status': status.name,
-        'phone': phone,
-        'email': email,
-        'documentId': documentId,
-        'secretHash': secretHash,
-        'birthDate': birthDate?.toIso8601String(),
-        'familyName': familyName,
-        'familyPhone': familyPhone,
-        'alternateName': alternateName,
-        'alternatePhone': alternatePhone,
-        'consentAccepted': consentAccepted,
-        'conductAccepted': conductAccepted,
-        'inductionDone': inductionDone,
-        'available': available,
-        'onboardingDone': onboardingDone,
-        'failedAttempts': failedAttempts,
-        'lockedUntil': vitaIsoN(lockedUntil),
-        'lastCallAt': vitaIsoN(lastCallAt),
-        'lastSeenAt': vitaIsoN(lastSeenAt),
-        'emailVerified': emailVerified,
-        'photoBase64': photoBase64,
-        'createdAt': vitaIsoN(createdAt),
-      };
+    'id': id,
+    'role': role.name,
+    'displayName': displayName,
+    'status': status.name,
+    'phone': phone,
+    'email': email,
+    'documentId': documentId,
+    'secretHash': secretHash,
+    'birthDate': birthDate?.toIso8601String(),
+    'familyName': familyName,
+    'familyPhone': familyPhone,
+    'alternateName': alternateName,
+    'alternatePhone': alternatePhone,
+    'consentAccepted': consentAccepted,
+    'conductAccepted': conductAccepted,
+    'inductionDone': inductionDone,
+    'available': available,
+    'onboardingDone': onboardingDone,
+    'failedAttempts': failedAttempts,
+    'lockedUntil': vitaIsoN(lockedUntil),
+    'lastCallAt': vitaIsoN(lastCallAt),
+    'lastSeenAt': vitaIsoN(lastSeenAt),
+    'emailVerified': emailVerified,
+    'photoBase64': photoBase64,
+    'createdAt': vitaIsoN(createdAt),
+  };
 
   factory VitaUser.fromJson(Map<String, dynamic> json) {
     return VitaUser(
@@ -156,7 +166,9 @@ class VitaUser {
       email: json['email'] as String?,
       documentId: json['documentId'] as String?,
       secretHash: json['secretHash'] as String?,
-      birthDate: json['birthDate'] == null ? null : DateTime.parse(json['birthDate'] as String),
+      birthDate: json['birthDate'] == null
+          ? null
+          : DateTime.parse(json['birthDate'] as String),
       familyName: json['familyName'] as String?,
       familyPhone: json['familyPhone'] as String?,
       alternateName: json['alternateName'] as String?,
@@ -167,12 +179,20 @@ class VitaUser {
       available: json['available'] as bool? ?? false,
       onboardingDone: json['onboardingDone'] as bool? ?? false,
       failedAttempts: json['failedAttempts'] as int? ?? 0,
-      lockedUntil: json['lockedUntil'] == null ? null : DateTime.parse(json['lockedUntil'] as String),
-      lastCallAt: json['lastCallAt'] == null ? null : DateTime.parse(json['lastCallAt'] as String),
-      lastSeenAt: json['lastSeenAt'] == null ? null : DateTime.parse(json['lastSeenAt'] as String),
+      lockedUntil: json['lockedUntil'] == null
+          ? null
+          : DateTime.parse(json['lockedUntil'] as String),
+      lastCallAt: json['lastCallAt'] == null
+          ? null
+          : DateTime.parse(json['lastCallAt'] as String),
+      lastSeenAt: json['lastSeenAt'] == null
+          ? null
+          : DateTime.parse(json['lastSeenAt'] as String),
       emailVerified: json['emailVerified'] as bool? ?? false,
       photoBase64: json['photoBase64'] as String?,
-      createdAt: json['createdAt'] == null ? null : DateTime.parse(json['createdAt'] as String),
+      createdAt: json['createdAt'] == null
+          ? null
+          : DateTime.parse(json['createdAt'] as String),
     );
   }
 }
@@ -185,6 +205,7 @@ class CallRequest {
     required this.joinCode,
     required this.status,
     required this.createdAt,
+    this.audioOnly = false,
     this.volunteerId,
     this.attempts = 1,
     this.startedAt,
@@ -198,6 +219,7 @@ class CallRequest {
   final String joinCode;
   final CallRequestStatus status;
   final DateTime createdAt;
+  final bool audioOnly;
   final int attempts;
   final DateTime? startedAt;
   final DateTime? endedAt;
@@ -215,6 +237,7 @@ class CallRequest {
     int? attempts,
     DateTime? startedAt,
     DateTime? endedAt,
+    bool? audioOnly,
   }) {
     return CallRequest(
       id: id,
@@ -224,6 +247,7 @@ class CallRequest {
       joinCode: joinCode,
       status: status ?? this.status,
       createdAt: createdAt,
+      audioOnly: audioOnly ?? this.audioOnly,
       attempts: attempts ?? this.attempts,
       startedAt: startedAt ?? this.startedAt,
       endedAt: endedAt ?? this.endedAt,
@@ -232,30 +256,32 @@ class CallRequest {
 
   /// La misma llamada sin datos personales (F18.7).
   CallRequest anonymized() => CallRequest(
-      id: id,
-      elderlyId: kAnonymized,
-      roomName: 'anonimizada',
-      joinCode: '000000',
-      status: status,
-      createdAt: createdAt,
-      volunteerId: volunteerId == null ? null : kAnonymized,
-      attempts: attempts,
-      startedAt: startedAt,
-      endedAt: endedAt,
-      );
+    id: id,
+    elderlyId: kAnonymized,
+    roomName: 'anonimizada',
+    joinCode: '000000',
+    status: status,
+    createdAt: createdAt,
+    audioOnly: audioOnly,
+    volunteerId: volunteerId == null ? null : kAnonymized,
+    attempts: attempts,
+    startedAt: startedAt,
+    endedAt: endedAt,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'elderlyId': elderlyId,
-        'volunteerId': volunteerId,
-        'roomName': roomName,
-        'joinCode': joinCode,
-        'status': status.name,
-        'createdAt': vitaIso(createdAt),
-        'attempts': attempts,
-        'startedAt': vitaIsoN(startedAt),
-        'endedAt': vitaIsoN(endedAt),
-      };
+    'id': id,
+    'elderlyId': elderlyId,
+    'volunteerId': volunteerId,
+    'roomName': roomName,
+    'joinCode': joinCode,
+    'status': status.name,
+    'createdAt': vitaIso(createdAt),
+    'audioOnly': audioOnly,
+    'attempts': attempts,
+    'startedAt': vitaIsoN(startedAt),
+    'endedAt': vitaIsoN(endedAt),
+  };
 
   factory CallRequest.fromJson(Map<String, dynamic> json) {
     return CallRequest(
@@ -266,9 +292,14 @@ class CallRequest {
       joinCode: json['joinCode'] as String,
       status: CallRequestStatus.values.byName(json['status'] as String),
       createdAt: DateTime.parse(json['createdAt'] as String),
+      audioOnly: json['audioOnly'] as bool? ?? false,
       attempts: json['attempts'] as int? ?? 1,
-      startedAt: json['startedAt'] == null ? null : DateTime.parse(json['startedAt'] as String),
-      endedAt: json['endedAt'] == null ? null : DateTime.parse(json['endedAt'] as String),
+      startedAt: json['startedAt'] == null
+          ? null
+          : DateTime.parse(json['startedAt'] as String),
+      endedAt: json['endedAt'] == null
+          ? null
+          : DateTime.parse(json['endedAt'] as String),
     );
   }
 }
@@ -309,26 +340,26 @@ class UserReport {
 
   /// La misma reporte sin datos personales (F18.7).
   UserReport anonymized() => UserReport(
-      id: id,
-      reporterId: kAnonymized,
-      reportedId: kAnonymized,
-      callId: callId,
-      reason: reason,
-      status: status,
-      createdAt: createdAt,
-      comment: null,
-      );
+    id: id,
+    reporterId: kAnonymized,
+    reportedId: kAnonymized,
+    callId: callId,
+    reason: reason,
+    status: status,
+    createdAt: createdAt,
+    comment: null,
+  );
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'reporterId': reporterId,
-        'reportedId': reportedId,
-        'callId': callId,
-        'reason': reason,
-        'comment': comment,
-        'status': status.name,
-        'createdAt': vitaIso(createdAt),
-      };
+    'id': id,
+    'reporterId': reporterId,
+    'reportedId': reportedId,
+    'callId': callId,
+    'reason': reason,
+    'comment': comment,
+    'status': status.name,
+    'createdAt': vitaIso(createdAt),
+  };
 
   factory UserReport.fromJson(Map<String, dynamic> json) {
     return UserReport(
@@ -360,7 +391,8 @@ T _enumByName<T extends Enum>(List<T> values, Object? name, T fallback) {
   return fallback;
 }
 
-DateTime? _dateOrNull(Object? raw) => raw is String ? DateTime.tryParse(raw) : null;
+DateTime? _dateOrNull(Object? raw) =>
+    raw is String ? DateTime.tryParse(raw) : null;
 
 /// Alerta de emergencia y su seguimiento por parte de coordinación (RF11 · F8.7, F8.9 y F8.11).
 class EmergencyAlert {
@@ -460,44 +492,154 @@ class EmergencyAlert {
   }
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'callId': callId,
-        'triggeredById': triggeredById,
-        'elderlyId': elderlyId,
-        'note': note,
-        'createdAt': vitaIso(createdAt),
-        'status': status.name,
-        'takenById': takenById,
-        'takenAt': vitaIsoN(takenAt),
-        'familyNotifiedAt': vitaIsoN(familyNotifiedAt),
-        'familyChannel': familyChannel,
-        'familyOutcome': familyOutcome.name,
-        'alternateNotifiedAt': vitaIsoN(alternateNotifiedAt),
-        'alternateOutcome': alternateOutcome.name,
-        'resolvedAt': vitaIsoN(resolvedAt),
-        'resolvedById': resolvedById,
-        'resolutionNote': resolutionNote,
-      };
+    'id': id,
+    'callId': callId,
+    'triggeredById': triggeredById,
+    'elderlyId': elderlyId,
+    'note': note,
+    'createdAt': vitaIso(createdAt),
+    'status': status.name,
+    'takenById': takenById,
+    'takenAt': vitaIsoN(takenAt),
+    'familyNotifiedAt': vitaIsoN(familyNotifiedAt),
+    'familyChannel': familyChannel,
+    'familyOutcome': familyOutcome.name,
+    'alternateNotifiedAt': vitaIsoN(alternateNotifiedAt),
+    'alternateOutcome': alternateOutcome.name,
+    'resolvedAt': vitaIsoN(resolvedAt),
+    'resolvedById': resolvedById,
+    'resolutionNote': resolutionNote,
+  };
 
   factory EmergencyAlert.fromJson(Map<String, dynamic> json) => EmergencyAlert(
-        id: json['id'] as String,
-        callId: json['callId'] as String,
-        triggeredById: json['triggeredById'] as String,
-        elderlyId: json['elderlyId'] as String,
-        note: json['note'] as String?,
-        createdAt: DateTime.parse(json['createdAt'] as String),
-        status: _enumByName(AlertStatus.values, json['status'], AlertStatus.open),
-        takenById: json['takenById'] as String?,
-        takenAt: _dateOrNull(json['takenAt']),
-        familyNotifiedAt: _dateOrNull(json['familyNotifiedAt']),
-        familyChannel: json['familyChannel'] as String?,
-        familyOutcome: _enumByName(FamilyOutcome.values, json['familyOutcome'], FamilyOutcome.pending),
-        alternateNotifiedAt: _dateOrNull(json['alternateNotifiedAt']),
-        alternateOutcome: _enumByName(FamilyOutcome.values, json['alternateOutcome'], FamilyOutcome.pending),
-        resolvedAt: _dateOrNull(json['resolvedAt']),
-        resolvedById: json['resolvedById'] as String?,
-        resolutionNote: json['resolutionNote'] as String?,
-      );
+    id: json['id'] as String,
+    callId: json['callId'] as String,
+    triggeredById: json['triggeredById'] as String,
+    elderlyId: json['elderlyId'] as String,
+    note: json['note'] as String?,
+    createdAt: DateTime.parse(json['createdAt'] as String),
+    status: _enumByName(AlertStatus.values, json['status'], AlertStatus.open),
+    takenById: json['takenById'] as String?,
+    takenAt: _dateOrNull(json['takenAt']),
+    familyNotifiedAt: _dateOrNull(json['familyNotifiedAt']),
+    familyChannel: json['familyChannel'] as String?,
+    familyOutcome: _enumByName(
+      FamilyOutcome.values,
+      json['familyOutcome'],
+      FamilyOutcome.pending,
+    ),
+    alternateNotifiedAt: _dateOrNull(json['alternateNotifiedAt']),
+    alternateOutcome: _enumByName(
+      FamilyOutcome.values,
+      json['alternateOutcome'],
+      FamilyOutcome.pending,
+    ),
+    resolvedAt: _dateOrNull(json['resolvedAt']),
+    resolvedById: json['resolvedById'] as String?,
+    resolutionNote: json['resolutionNote'] as String?,
+  );
+}
+
+/// Estado de una solicitud de apoyo psicológico durante una llamada.
+enum SupportStatus { open, accepted, closed, cancelled }
+
+/// El voluntario nota que la persona mayor está muy triste y pide que un psicólogo entre a la misma
+/// llamada. Guarda la sala para que el psicólogo se una; el Worker valida que la solicitud exista.
+class SupportRequest {
+  const SupportRequest({
+    required this.id,
+    required this.callId,
+    required this.roomName,
+    required this.requestedById,
+    required this.elderlyId,
+    required this.createdAt,
+    this.note,
+    this.status = SupportStatus.open,
+    this.psychologistId,
+    this.acceptedAt,
+    this.closedAt,
+  });
+
+  final String id;
+  final String callId;
+  final String roomName;
+  final String requestedById;
+  final String elderlyId;
+  final DateTime createdAt;
+  final String? note;
+  final SupportStatus status;
+  final String? psychologistId;
+  final DateTime? acceptedAt;
+  final DateTime? closedAt;
+
+  bool get isAnonymized => elderlyId == kAnonymized;
+
+  SupportRequest copyWith({
+    SupportStatus? status,
+    String? psychologistId,
+    DateTime? acceptedAt,
+    DateTime? closedAt,
+  }) {
+    return SupportRequest(
+      id: id,
+      callId: callId,
+      roomName: roomName,
+      requestedById: requestedById,
+      elderlyId: elderlyId,
+      createdAt: createdAt,
+      note: note,
+      status: status ?? this.status,
+      psychologistId: psychologistId ?? this.psychologistId,
+      acceptedAt: acceptedAt ?? this.acceptedAt,
+      closedAt: closedAt ?? this.closedAt,
+    );
+  }
+
+  /// Misma solicitud sin datos personales (F18.7).
+  SupportRequest anonymized() => SupportRequest(
+    id: id,
+    callId: callId,
+    roomName: 'anonimizada',
+    requestedById: kAnonymized,
+    elderlyId: kAnonymized,
+    createdAt: createdAt,
+    status: status,
+    psychologistId: psychologistId == null ? null : kAnonymized,
+    acceptedAt: acceptedAt,
+    closedAt: closedAt,
+  );
+
+  Map<String, dynamic> toJson() => {
+    'id': id,
+    'callId': callId,
+    'roomName': roomName,
+    'requestedById': requestedById,
+    'elderlyId': elderlyId,
+    'note': note,
+    'createdAt': vitaIso(createdAt),
+    'status': status.name,
+    'psychologistId': psychologistId,
+    'acceptedAt': vitaIsoN(acceptedAt),
+    'closedAt': vitaIsoN(closedAt),
+  };
+
+  factory SupportRequest.fromJson(Map<String, dynamic> json) => SupportRequest(
+    id: json['id'] as String,
+    callId: json['callId'] as String,
+    roomName: json['roomName'] as String,
+    requestedById: json['requestedById'] as String,
+    elderlyId: json['elderlyId'] as String,
+    note: json['note'] as String?,
+    createdAt: DateTime.parse(json['createdAt'] as String),
+    status: _enumByName(
+      SupportStatus.values,
+      json['status'],
+      SupportStatus.open,
+    ),
+    psychologistId: json['psychologistId'] as String?,
+    acceptedAt: _dateOrNull(json['acceptedAt']),
+    closedAt: _dateOrNull(json['closedAt']),
+  );
 }
 
 class CallSurvey {
@@ -514,11 +656,11 @@ class CallSurvey {
   final int? feltAccompanied;
 
   Map<String, dynamic> toJson() => {
-        'callId': callId,
-        'userId': userId,
-        'experience': experience,
-        'feltAccompanied': feltAccompanied,
-      };
+    'callId': callId,
+    'userId': userId,
+    'experience': experience,
+    'feltAccompanied': feltAccompanied,
+  };
 
   factory CallSurvey.fromJson(Map<String, dynamic> json) {
     return CallSurvey(
@@ -546,12 +688,12 @@ class AvailabilitySlot {
   final int endHour;
 
   Map<String, dynamic> toJson() => {
-        'id': id,
-        'volunteerId': volunteerId,
-        'weekday': weekday,
-        'startHour': startHour,
-        'endHour': endHour,
-      };
+    'id': id,
+    'volunteerId': volunteerId,
+    'weekday': weekday,
+    'startHour': startHour,
+    'endHour': endHour,
+  };
 
   factory AvailabilitySlot.fromJson(Map<String, dynamic> json) {
     return AvailabilitySlot(
