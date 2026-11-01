@@ -19,7 +19,7 @@ class CoordinatorHomeView extends StatelessWidget {
     final repo = VitaScope.of(context);
     final pending = repo.users.where((u) => u.role == UserRole.volunteer && u.status == AccountStatus.pending).toList();
     final presentationReviews = repo.users.where((u) => u.role == UserRole.volunteer && u.volunteerPresentationConsent && !u.volunteerPresentationReviewed && u.status != AccountStatus.blocked).toList();
-    final identityReviews = repo.users.where((u) => u.role == UserRole.volunteer && u.status == AccountStatus.active && !u.identityVerified && u.idFrontBase64 != null && u.idBackBase64 != null).toList();
+    final identityReviews = repo.users.where((u) => u.role == UserRole.volunteer && u.status == AccountStatus.active && !u.identityVerified && u.idFrontBase64 != null && u.idBackBase64 != null && u.photoBase64 != null).toList();
     final avg = repo.averageDuration;
 
     return VitaPage(
@@ -90,7 +90,7 @@ class CoordinatorHomeView extends StatelessWidget {
                     tooltip: user.identityVerified ? 'Cédula verificada' : 'Revisar cédula',
                     icon: Icon(user.identityVerified ? Icons.verified_user : Icons.badge_outlined),
                     color: user.identityVerified ? VitaColors.success : context.vita.muted,
-                    onPressed: user.idFrontBase64 == null || user.idBackBase64 == null
+                    onPressed: user.idFrontBase64 == null || user.idBackBase64 == null || user.photoBase64 == null
                         ? null
                         : () => _reviewIdentityDocuments(context, user),
                   ),
@@ -294,7 +294,12 @@ Future<void> _reviewIdentityDocuments(BuildContext context, VitaUser user) async
       title: Text('Cédula de ${user.displayName}'),
       content: SingleChildScrollView(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          const Text('Documento privado. Confirma que coincide con los datos del registro.'),
+          const Text('Compara la foto personal con la cédula. Confirma que las imágenes pertenecen a la misma persona.'),
+          if (user.photoBase64 != null) ...[
+            const SizedBox(height: 12),
+            const Text('Foto personal'),
+            CircleAvatar(radius: 52, backgroundImage: MemoryImage(base64Decode(user.photoBase64!))),
+          ],
           const SizedBox(height: 12),
           const Text('Frente'),
           Image.memory(base64Decode(front), fit: BoxFit.contain),
@@ -622,5 +627,6 @@ String _pendingDetails(VitaUser user) {
       : (user.idFrontBase64 != null && user.idBackBase64 != null
           ? 'Cédula cargada: falta revisión de coordinación'
           : 'Falta frente o reverso de la cédula');
-  return '${user.email} · ${user.documentId}\n$birthText\n$emailText\n$identityText';
+  final photoText = user.photoBase64 == null ? 'Falta foto personal' : 'Foto personal lista para comparar';
+  return '${user.email} · ${user.documentId}\n$birthText\n$emailText\n$identityText\n$photoText';
 }

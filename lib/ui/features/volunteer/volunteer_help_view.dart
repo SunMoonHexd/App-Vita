@@ -26,9 +26,9 @@ class VolunteerHelpView extends StatelessWidget {
         children: [
           const Text('¿Cómo recibir llamadas?', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 12),
-          const _Step(number: '1', text: 'Activa "Mi disponibilidad" dentro de tus horarios.'),
-          const _Step(number: '2', text: 'Deja esta pantalla abierta: así te llegan las solicitudes.'),
-          const _Step(number: '3', text: 'Cuando suene una solicitud, toca "Aceptar" y la videollamada empieza sola.'),
+          const _Step(number: '1', text: 'Agrega tus turnos o deja el horario vacío para poder estar disponible a cualquier hora.'),
+          const _Step(number: '2', text: 'En Inicio, activa "Estoy disponible" y permite las notificaciones para recibir avisos.'),
+          const _Step(number: '3', text: 'Cuando llegue una solicitud, revisa el aviso y toca "Aceptar" para iniciar la llamada.'),
           const SizedBox(height: 18),
           const Text('Cuida y cuídate', style: TextStyle(fontSize: 22, fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),

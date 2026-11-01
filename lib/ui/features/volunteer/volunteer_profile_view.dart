@@ -73,9 +73,13 @@ class VolunteerProfileView extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   VitaPill(
-                    label: active ? 'Voluntario verificado' : 'Cuenta ${user.status.name}',
-                    tone: active ? VitaTone.success : VitaTone.warning,
-                    icon: active ? Icons.verified_rounded : null,
+                    label: !active
+                        ? 'Cuenta ${user.status.name}'
+                        : user.identityVerified
+                            ? 'Identidad verificada'
+                            : 'Identidad pendiente',
+                    tone: active && user.identityVerified ? VitaTone.success : VitaTone.warning,
+                    icon: active && user.identityVerified ? Icons.verified_rounded : Icons.shield_outlined,
                   ),
                 ],
               ),

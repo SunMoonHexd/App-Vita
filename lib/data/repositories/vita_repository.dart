@@ -707,6 +707,7 @@ class VitaRepository extends ChangeNotifier {
     required String email,
     required String password,
     required String documentId,
+    required String photoBase64,
     required bool consent,
     required bool conduct,
     required bool inductionDone,
@@ -722,6 +723,9 @@ class VitaRepository extends ChangeNotifier {
       return const AuthResult.error('Debes aceptar el tratamiento de datos.');
     if (!identityDocumentConsent || idFrontBase64.isEmpty || idBackBase64.isEmpty) {
       return const AuthResult.error('Debes autorizar el uso de la cédula y cargar el frente y reverso para que coordinación pueda verificar tu identidad.');
+    }
+    if (photoBase64.isEmpty) {
+      return const AuthResult.error('Debes tomar una foto personal para completar el registro.');
     }
     if (!conduct || !inductionDone) {
       return const AuthResult.error(
@@ -755,6 +759,7 @@ class VitaRepository extends ChangeNotifier {
       phone: phone.trim(),
       email: email.trim(),
       documentId: documentId.trim(),
+      photoBase64: photoBase64,
       birthDate: birthDate,
       consentAccepted: true,
       conductAccepted: true,
@@ -1126,6 +1131,7 @@ class VitaRepository extends ChangeNotifier {
       idBackBase64: back,
       identityVerified: false,
       identityDocumentConsent: true,
+      available: false,
       idDocumentsUploadedAt: _now(),
       clearIdentityVerification: true,
     ));
@@ -1146,6 +1152,7 @@ class VitaRepository extends ChangeNotifier {
       clearIdBack: true,
       identityDocumentConsent: false,
       identityVerified: false,
+      available: false,
       clearIdDocumentsUploadedAt: true,
       clearIdentityVerification: true,
       clearDocumentId: true,
@@ -1168,6 +1175,9 @@ class VitaRepository extends ChangeNotifier {
     }
     if (user.idFrontBase64 == null || user.idBackBase64 == null) {
       throw Exception('El voluntario debe cargar el frente y el reverso de la cédula.');
+    }
+    if (user.photoBase64 == null) {
+      throw Exception('El voluntario debe cargar una foto personal para comparar con la cédula.');
     }
     final coordinator = currentUser;
     final verifiedUser = user.copyWith(
@@ -1200,6 +1210,9 @@ class VitaRepository extends ChangeNotifier {
         clearPhoto: photoBase64 == null,
         volunteerPresentationReviewed: false,
         clearVolunteerPresentationPhoto: true,
+        identityVerified: user.role == UserRole.volunteer ? false : user.identityVerified,
+        clearIdentityVerification: user.role == UserRole.volunteer,
+        available: user.role == UserRole.volunteer ? false : user.available,
       ),
     );
     await _commit();
@@ -1233,6 +1246,9 @@ class VitaRepository extends ChangeNotifier {
   Future<void> setAvailability(bool available) async {
     final user = currentUser;
     if (user == null || user.role != UserRole.volunteer) return;
+    if (available && !user.identityVerified) {
+      throw Exception('Coordinación debe verificar tu identidad antes de que recibas solicitudes.');
+    }
     if (activeRequest?.status == CallRequestStatus.connected) {
       throw Exception(
         'No puedes cambiar la disponibilidad durante una videollamada.',

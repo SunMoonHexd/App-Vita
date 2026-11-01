@@ -6,6 +6,7 @@ bool canApproveVolunteer(VitaUser user) =>
     user.status == AccountStatus.pending &&
     user.emailVerified &&
     user.inductionDone &&
+    user.photoBase64 != null &&
     user.identityDocumentConsent &&
     user.idFrontBase64 != null &&
     user.idBackBase64 != null &&
