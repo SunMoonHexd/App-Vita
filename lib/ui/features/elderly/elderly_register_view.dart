@@ -426,10 +426,11 @@ class _ElderlyRegisterViewState extends State<ElderlyRegisterView> {
     required ValueChanged<bool> onChanged,
     required String text,
   }) {
-    return Container(
-      decoration: BoxDecoration(
-        color: Colors.white,
-        border: Border.all(color: VitaColors.border),
+    return Material(
+      color: Colors.white,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        side: BorderSide(color: VitaColors.border),
         borderRadius: BorderRadius.circular(18),
       ),
       child: CheckboxListTile(
