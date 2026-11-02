@@ -8,6 +8,7 @@ final DateTime kNow = DateTime.utc(2026, 10, 13, 15, 0);
 VitaUser volunteer(
   String id, {
   bool available = true,
+  bool identityVerified = true,
   AccountStatus status = AccountStatus.active,
   UserRole role = UserRole.volunteer,
   DateTime? now,
@@ -22,6 +23,7 @@ VitaUser volunteer(
     displayName: id,
     status: status,
     available: available,
+    identityVerified: identityVerified,
     lastSeenAt: neverSeen ? null : at.subtract(seenAgo),
     lastCallAt: lastCallAt,
   );
@@ -81,6 +83,10 @@ void main() {
 
     test('no entra si no está marcado como disponible', () {
       expect(select([volunteer('v1', available: false)]), isEmpty);
+    });
+
+    test('no entra si coordinación no verificó su identidad', () {
+      expect(select([volunteer('v1', identityVerified: false)]), isEmpty);
     });
 
     test('no entra si la cuenta no está activa', () {

@@ -21,9 +21,14 @@ import 'package:vita_app/data/services/livekit_call_service.dart';
 import 'package:vita_app/data/services/local_storage_service.dart';
 import 'package:vita_app/data/services/secret_hasher.dart';
 import 'package:vita_app/domain/audit_log.dart';
+import 'package:vita_app/domain/auth_helpers.dart';
+import 'package:vita_app/domain/call_lifecycle.dart';
+import 'package:vita_app/domain/call_statistics.dart';
 import 'package:vita_app/domain/data_retention.dart';
 import 'package:vita_app/domain/legal_versions.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
+import 'package:vita_app/domain/support_request_queries.dart' as support_queries;
+import 'package:vita_app/domain/user_document_data.dart';
 import 'package:vita_app/domain/volunteer_matching.dart';
 import 'package:vita_app/domain/volunteer_verification.dart';
 import 'package:vita_app/firebase_options.dart';
@@ -113,7 +118,7 @@ class VitaRepository extends ChangeNotifier {
   static const lockDuration = Duration(minutes: 15);
   // La llamada se considera interrumpida tras cuatro horas; sus solicitudes de apoyo
   // dejan de ser accionables al mismo tiempo.
-  static const supportRequestMaxAge = Duration(hours: 4);
+  static const supportRequestMaxAge = support_queries.kSupportRequestMaxAge;
   static const _writeTimeout = Duration(seconds: 8);
 
   /// Un voluntario sin "latido" en este tiempo se considera desconectado.
@@ -174,31 +179,12 @@ class VitaRepository extends ChangeNotifier {
       _slots.where((s) => s.volunteerId == volunteerId).toList();
 
   CallRequest _normalize(CallRequest r) {
-    final now = _now();
-    if ((r.status == CallRequestStatus.searching ||
-            r.status == CallRequestStatus.ringing) &&
-        now.difference(r.createdAt) > const Duration(minutes: 10)) {
-      return r.copyWith(status: CallRequestStatus.expired);
-    }
-    if (r.status == CallRequestStatus.connected &&
-        now.difference(r.startedAt ?? r.createdAt) > const Duration(hours: 4)) {
-      return r.copyWith(status: CallRequestStatus.interrupted);
-    }
-    return r;
+    return normalizeCallRequest(r, _now());
   }
 
   CallRequest? get activeRequest {
     final user = currentUser;
-    if (user == null) return null;
-    return requests.cast<CallRequest?>().firstWhere(
-      (r) =>
-          r != null &&
-          (r.elderlyId == user.id || r.volunteerId == user.id) &&
-          (r.status == CallRequestStatus.searching ||
-              r.status == CallRequestStatus.ringing ||
-              r.status == CallRequestStatus.connected),
-      orElse: () => null,
-    );
+    return activeCallFor(requests, user?.id);
   }
 
   bool get isWithinServiceHours {
@@ -274,8 +260,8 @@ class VitaRepository extends ChangeNotifier {
     if (pub != null) _pubById[user.id] = pub;
     if (priv != null) _privById[user.id] = priv;
     _users.add(user);
-    _syncedPub[user.id] = _publicJson(user);
-    if (priv != null) _syncedPriv[user.id] = _privateJson(user);
+    _syncedPub[user.id] = publicUserDocument(user);
+    if (priv != null) _syncedPriv[user.id] = privateUserDocument(user);
     _sessionUserId = user.id;
     await _startSync();
     notifyListeners();
@@ -322,33 +308,17 @@ class VitaRepository extends ChangeNotifier {
     return AuthResult.ok(user);
   }
 
-  String _digits(String phone) => phone.replaceAll(RegExp(r'\D'), '');
+  String _digits(String phone) => phoneDigits(phone);
 
   /// El adulto mayor ingresa con teléfono + PIN; por dentro se convierten en
   /// un correo y una clave de Firebase (la clave exige 6 caracteres o más).
   String _elderlyEmail(String phone) =>
-      '${_digits(phone)}@telefono.vita.invalid';
+      elderlyAuthEmail(phone);
   String _elderlyPassword(String pin, String phone) =>
-      'vita-$pin-${_digits(phone)}';
+      elderlyAuthPassword(pin, phone);
 
   String _authMessage(FirebaseAuthException e, {required String wrong}) {
-    switch (e.code) {
-      case 'invalid-credential':
-      case 'wrong-password':
-      case 'user-not-found':
-      case 'invalid-email':
-        return wrong;
-      case 'too-many-requests':
-        return 'Demasiados intentos. Espera unos minutos e inténtalo de nuevo.';
-      case 'network-request-failed':
-        return 'Sin conexión a internet. Revisa tu red e inténtalo de nuevo.';
-      case 'user-disabled':
-        return 'Esta cuenta está deshabilitada.';
-      case 'weak-password':
-        return 'La contraseña es muy débil (mínimo 6 caracteres).';
-      default:
-        return 'No se pudo completar la acción (${e.code}).';
-    }
+    return authErrorMessage(e.code, wrong: wrong);
   }
 
   Future<AuthResult> _login({
@@ -470,9 +440,9 @@ class VitaRepository extends ChangeNotifier {
     }
   }
 
-  String _elderlyLockKey(String phone) => 'elderly:${_digits(phone)}';
+  String _elderlyLockKey(String phone) => elderlyLockKey(phone);
   String _volunteerLockKey(String email) =>
-      'volunteer:${email.trim().toLowerCase()}';
+      emailLockKey('volunteer', email);
 
   Future<String?> _lockMessage(String key) async {
     try {
@@ -483,11 +453,7 @@ class VitaRepository extends ChangeNotifier {
       if (raw == null) return null;
       final until = DateTime.tryParse(raw);
       if (until == null || !_now().isBefore(until)) return null;
-      final minutes = until.difference(_now()).inMinutes + 1;
-      final help = key.startsWith('elderly:')
-          ? ' También puedes restablecer el PIN con ayuda de tu familiar.'
-          : ' También puedes restablecer tu contraseña desde el correo.';
-      return 'Cuenta bloqueada por intentos fallidos. Espera $minutes minuto(s).$help';
+      return activeLockMessage(key: key, lockedUntil: until, now: _now());
     } catch (_) {
       return null;
     }
@@ -501,23 +467,22 @@ class VitaRepository extends ChangeNotifier {
       final ref = _db.collection('locks').doc(key);
       final snap = await ref.get();
       final data = snap.data();
-      var prev = (data?['failedAttempts'] as num?)?.toInt() ?? 0;
-      // Si el bloqueo anterior ya venció, se empieza un ciclo nuevo (si no, un solo error
-      // más volvería a bloquear 15 minutos).
       final rawUntil = data?['lockedUntil'] as String?;
       final prevUntil = rawUntil == null ? null : DateTime.tryParse(rawUntil);
-      if (prevUntil != null && !_now().isBefore(prevUntil)) prev = 0;
-      final next = prev + 1;
-      if (next >= maxFailedAttempts) {
-        final until = _now().add(lockDuration);
-        await ref.set({'failedAttempts': next, 'lockedUntil': vitaIso(until)});
-        final help = key.startsWith('elderly:')
-            ? ' Recupera el PIN con tu familiar o espera 15 minutos.'
-            : ' Espera 15 minutos o restablece tu contraseña.';
-        return 'Cuenta bloqueada por 15 minutos tras 5 intentos fallidos.$help';
-      }
-      await ref.set({'failedAttempts': next, 'lockedUntil': null});
-      return '$wrong Te quedan ${maxFailedAttempts - next} intento(s).';
+      final decision = failedAttemptDecision(
+        key: key,
+        previousAttempts: (data?['failedAttempts'] as num?)?.toInt() ?? 0,
+        previousLockedUntil: prevUntil,
+        now: _now(),
+        wrong: wrong,
+        maxAttempts: maxFailedAttempts,
+        lockDuration: lockDuration,
+      );
+      await ref.set({
+        'failedAttempts': decision.failedAttempts,
+        'lockedUntil': vitaIsoN(decision.lockedUntil),
+      });
+      return decision.message;
     } catch (_) {
       return wrong;
     }
@@ -569,7 +534,7 @@ class VitaRepository extends ChangeNotifier {
       password: password,
       role: UserRole.psychologist,
       wrong: 'Correo o contraseña incorrectos.',
-      lockKey: 'psychologist:${email.trim().toLowerCase()}',
+      lockKey: emailLockKey('psychologist', email),
     );
   }
 
@@ -589,12 +554,12 @@ class VitaRepository extends ChangeNotifier {
     await _db
         .collection('users')
         .doc(user.id)
-        .set(_publicJson(user))
+        .set(publicUserDocument(user))
         .timeout(const Duration(seconds: 15));
     await _db
         .collection('private')
         .doc(user.id)
-        .set(_privateJson(user))
+        .set(privateUserDocument(user))
         .timeout(const Duration(seconds: 15));
     // Evidencia del consentimiento (RF10): qué versión del texto aceptó y cuándo.
     await _db
@@ -697,8 +662,8 @@ class VitaRepository extends ChangeNotifier {
         'No se pudo guardar tu registro. Revisa tu internet e inténtalo de nuevo.',
       );
     }
-    _pubById[user.id] = _publicJson(user);
-    _privById[user.id] = _privateJson(user);
+    _pubById[user.id] = publicUserDocument(user);
+    _privById[user.id] = privateUserDocument(user);
     await _openSession(user);
     await _storePinWrap(user, pin);
     return AuthResult.ok(user);
@@ -1212,8 +1177,8 @@ class VitaRepository extends ChangeNotifier {
       'identityVerifiedBy': coordinatorUid,
     };
     await _db.collection('private').doc(user.id).update(privateData);
-    _privById[user.id] = _privateJson(verifiedUser);
-    _syncedPriv[user.id] = _privateJson(verifiedUser);
+    _privById[user.id] = privateUserDocument(verifiedUser);
+    _syncedPriv[user.id] = privateUserDocument(verifiedUser);
     _users[i] = verifiedUser;
     await _commit();
     unawaited(_audit('volunteer_identity_verified', targetId: userId));
@@ -1677,39 +1642,17 @@ class VitaRepository extends ChangeNotifier {
   // ---------------------------------------------------------------------------
 
   /// Solicitud de apoyo activa (abierta o aceptada) de una llamada, si hay.
-  SupportRequest? activeSupportFor(String callId) => _supports
-      .where(
-        (s) =>
-            s.callId == callId &&
-            _now().difference(s.createdAt) <= supportRequestMaxAge &&
-            (s.status == SupportStatus.open ||
-                s.status == SupportStatus.accepted),
-      )
-      .firstOrNull;
+  SupportRequest? activeSupportFor(String callId) =>
+      support_queries.activeSupportFor(_supports, callId, _now());
 
   /// Solicitudes recientes que un psicólogo puede tomar, la más antigua primero.
   List<SupportRequest> get openSupportRequests =>
-      _supports
-        .where(
-          (s) =>
-              s.status == SupportStatus.open &&
-              _now().difference(s.createdAt) <= supportRequestMaxAge,
-        )
-        .toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      support_queries.openSupportRequests(_supports, _now());
 
   /// Solicitudes que este psicólogo ya aceptó y siguen en curso.
   List<SupportRequest> get mySupportInProgress {
     final me = currentUser;
-    if (me == null) return const [];
-    return _supports
-        .where(
-          (s) =>
-              s.status == SupportStatus.accepted &&
-              s.psychologistId == me.id &&
-              _now().difference(s.createdAt) <= supportRequestMaxAge,
-        )
-        .toList();
+    return support_queries.supportInProgressFor(_supports, me?.id, _now());
   }
 
   /// El voluntario pide que un psicólogo se una a la llamada [callId].
@@ -1933,12 +1876,12 @@ class VitaRepository extends ChangeNotifier {
       await db
           .collection('users')
           .doc(user.id)
-          .set(_publicJson(user))
+          .set(publicUserDocument(user))
           .timeout(const Duration(seconds: 15));
       await db
           .collection('private')
           .doc(user.id)
-          .set(_privateJson(user))
+          .set(privateUserDocument(user))
           .timeout(const Duration(seconds: 15));
       // Ahora coordinación (sesión principal) activa la cuenta.
       await _db
@@ -2346,31 +2289,13 @@ class VitaRepository extends ChangeNotifier {
   );
 
   Duration volunteerHours(String volunteerId) {
-    var total = Duration.zero;
-    for (final request in _requests) {
-      if (request.volunteerId == volunteerId &&
-          request.status == CallRequestStatus.completed) {
-        total += request.duration;
-      }
-    }
-    return total;
+    return volunteerCallTime(_requests, volunteerId, _now());
   }
 
-  int get completedCalls =>
-      _requests.where((r) => r.status == CallRequestStatus.completed).length;
+  int get completedCalls => completedCallCount(_requests);
 
-  Duration get averageDuration {
-    final done = _requests
-        .where(
-          (r) => r.status == CallRequestStatus.completed && r.startedAt != null,
-        )
-        .toList();
-    if (done.isEmpty) return Duration.zero;
-    final ms =
-        done.fold<int>(0, (p, r) => p + r.duration.inMilliseconds) ~/
-        done.length;
-    return Duration(milliseconds: ms);
-  }
+  Duration get averageDuration =>
+      averageCompletedCallDuration(_requests, _now());
 
   // ---------------------------------------------------------------------------
   // Sincronización con Firestore
@@ -2382,50 +2307,6 @@ class VitaRepository extends ChangeNotifier {
     final i = _indexOf(user.id);
     if (i >= 0) _users[i] = user;
   }
-
-  Map<String, dynamic> _publicJson(VitaUser u) => {
-    'id': u.id,
-    'role': u.role.name,
-    'displayName': u.displayName,
-    'status': u.status.name,
-    'consentAccepted': u.consentAccepted,
-    'conductAccepted': u.conductAccepted,
-    'inductionDone': u.inductionDone,
-    'available': u.available,
-    'onboardingDone': u.onboardingDone,
-    'lastCallAt': u.lastCallAt == null ? null : vitaIso(u.lastCallAt!),
-    'lastSeenAt': u.lastSeenAt == null ? null : vitaIso(u.lastSeenAt!),
-    'emailVerified': u.emailVerified,
-    'createdAt': u.createdAt == null ? null : vitaIso(u.createdAt!),
-    'volunteerPresentationConsent': u.volunteerPresentationConsent,
-    'volunteerPresentationReviewed': u.volunteerPresentationReviewed,
-    'identityVerified': u.identityVerified,
-    'volunteerBio': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerBio : null,
-    'volunteerInterests': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerInterests : null,
-    'volunteerExperience': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerExperience : null,
-    'volunteerPresentationPhoto': u.role == UserRole.volunteer && u.volunteerPresentationConsent && u.volunteerPresentationReviewed ? u.volunteerPresentationPhoto : null,
-  };
-
-  Map<String, dynamic> _privateJson(VitaUser u) => {
-    'phone': u.phone,
-    'email': u.email,
-    'documentId': u.documentId,
-    'birthDate': u.birthDate?.toIso8601String(),
-    'familyName': u.familyName,
-    'familyPhone': u.familyPhone,
-    'alternateName': u.alternateName,
-    'alternatePhone': u.alternatePhone,
-    'photoBase64': u.photoBase64,
-    'volunteerBio': u.volunteerBio,
-    'volunteerInterests': u.volunteerInterests,
-    'volunteerExperience': u.volunteerExperience,
-    'idFrontBase64': u.idFrontBase64,
-    'idBackBase64': u.idBackBase64,
-    'identityDocumentConsent': u.identityDocumentConsent,
-    'idDocumentsUploadedAt': u.idDocumentsUploadedAt == null ? null : vitaIso(u.idDocumentsUploadedAt!),
-    'identityVerifiedAt': u.identityVerifiedAt == null ? null : vitaIso(u.identityVerifiedAt!),
-    'identityVerifiedBy': u.identityVerifiedBy,
-  };
 
   Future<void> _commit() async {
     notifyListeners();
@@ -2491,14 +2372,14 @@ class VitaRepository extends ChangeNotifier {
     final writes = <Future<void>>[];
 
     for (final u in List<VitaUser>.from(_users)) {
-      final pub = _publicJson(u);
+      final pub = publicUserDocument(u);
       final oldPub = _syncedPub[u.id];
       final chPub = _changed(oldPub, pub);
       if (oldPub == null || chPub.isNotEmpty) {
         writes.add(_set('users', u.id, chPub, () => _syncedPub[u.id] = pub));
       }
       if (u.id == _sessionUserId) {
-        final priv = _privateJson(u);
+        final priv = privateUserDocument(u);
         final oldPriv = _syncedPriv[u.id];
         final chPriv = _changed(oldPriv, priv);
         if (oldPriv == null || chPriv.isNotEmpty) {
@@ -2641,8 +2522,8 @@ class VitaRepository extends ChangeNotifier {
     } else {
       _users.add(user);
     }
-    _syncedPub[id] = _publicJson(user);
-    if (_privById.containsKey(id)) _syncedPriv[id] = _privateJson(user);
+    _syncedPub[id] = publicUserDocument(user);
+    if (_privById.containsKey(id)) _syncedPriv[id] = privateUserDocument(user);
   }
 
   void _onUsers(QuerySnapshot<Map<String, dynamic>> snap) {

@@ -2,7 +2,14 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:vita_app/domain/models/vita_models.dart';
 import 'package:vita_app/domain/volunteer_verification.dart';
 
-VitaUser pendingVolunteer({bool emailVerified = false, bool inductionDone = true, AccountStatus? status}) {
+VitaUser pendingVolunteer({
+  bool emailVerified = false,
+  bool inductionDone = true,
+  bool identityDocumentConsent = true,
+  bool identityVerified = true,
+  String? photoBase64 = 'foto-de-prueba',
+  AccountStatus? status,
+}) {
   return VitaUser(
     id: 'v1',
     role: UserRole.volunteer,
@@ -10,6 +17,9 @@ VitaUser pendingVolunteer({bool emailVerified = false, bool inductionDone = true
     status: status ?? AccountStatus.pending,
     inductionDone: inductionDone,
     emailVerified: emailVerified,
+    identityDocumentConsent: identityDocumentConsent,
+    identityVerified: identityVerified,
+    photoBase64: photoBase64,
   );
 }
 
@@ -25,6 +35,15 @@ void main() {
 
     test('sin inducción, no, aunque el correo esté verificado', () {
       expect(canApproveVolunteer(pendingVolunteer(emailVerified: true, inductionDone: false)), isFalse);
+    });
+
+    test('sin consentimiento para revisar identidad, no', () {
+      expect(canApproveVolunteer(pendingVolunteer(emailVerified: true, identityDocumentConsent: false)), isFalse);
+    });
+
+    test('sin foto de perfil ni revisión de identidad, no', () {
+      expect(canApproveVolunteer(pendingVolunteer(emailVerified: true, photoBase64: null)), isFalse);
+      expect(canApproveVolunteer(pendingVolunteer(emailVerified: true, identityVerified: false)), isFalse);
     });
 
     test('solo aplica a voluntarios pendientes', () {
@@ -48,7 +67,7 @@ void main() {
     });
 
     test('verificado dice que falta la aprobación de coordinación', () {
-      expect(volunteerPendingMessage(emailVerified: true), contains('aprobación de coordinación'));
+      expect(volunteerPendingMessage(emailVerified: true), contains('revisar tu cédula y aprobar la cuenta'));
     });
   });
 
