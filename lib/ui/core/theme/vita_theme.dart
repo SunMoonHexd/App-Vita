@@ -11,14 +11,29 @@ import 'package:flutter/services.dart';
 /// se agrega aquí o en la paleta, con un nombre que diga para qué sirve.
 class VitaColors {
   // --- Marca ---
-  static const Color primary = Color(0xFF14877A); // verde azulado: acción principal
+  static const Color primary = Color(
+    0xFF14877A,
+  ); // verde azulado: acción principal
   static const Color primaryLight = Color(0xFF26AA9A);
-  static const Color primaryBright = Color(0xFF1FA596); // extremo claro del degradado principal
-  static const Color primaryDark = Color(0xFF0E6B60); // "relieve" del botón principal
+  static const Color primaryBright = Color(
+    0xFF1FA596,
+  ); // extremo claro del degradado principal
+  static const Color primaryDark = Color(
+    0xFF0E6B60,
+  ); // "relieve" del botón principal
   static const Color secondary = Color(0xFF3F6DB3); // azul: voluntarios
   static const Color secondaryLight = Color(0xFF5E8CD2);
-  static const Color secondaryDark = Color(0xFF2E5496); // extremo oscuro del degradado azul
-  static const Color slate = Color(0xFF35506B); // azul grisáceo: acciones de registro
+  static const Color secondaryDark = Color(
+    0xFF2E5496,
+  ); // extremo oscuro del degradado azul
+  static const Color slate = Color(
+    0xFF35506B,
+  ); // azul grisáceo: acciones de registro
+  static const Color lavender = Color(
+    0xFF7352A5,
+  ); // violeta para acciones de ayuda
+  static const Color lavenderBg = Color(0xFFF1ECFA);
+  static const Color lavenderBorder = Color(0xFFD6C8EE);
 
   // --- Texto y superficies (tema CLARO). Para que cambien con el tema usa `context.vita`. ---
   static const Color ink = Color(0xFF1F2D3D); // texto
@@ -46,13 +61,25 @@ class VitaColors {
 /// Degradados de la marca.
 class VitaGradients {
   /// Colores del perfil adulto mayor (verde azulado) y voluntario (azul), claro al final.
-  static const List<Color> tealColors = [VitaColors.primary, VitaColors.primaryLight];
-  static const List<Color> blueColors = [VitaColors.secondary, VitaColors.secondaryLight];
+  static const List<Color> tealColors = [
+    VitaColors.primary,
+    VitaColors.primaryLight,
+  ];
+  static const List<Color> blueColors = [
+    VitaColors.secondary,
+    VitaColors.secondaryLight,
+  ];
 
   /// Degradados de las cabeceras grandes. Terminan en tonos oscuros para que el texto blanco
   /// se lea bien (contraste suficiente) de punta a punta.
-  static const List<Color> heroTeal = [VitaColors.primary, VitaColors.primaryDark];
-  static const List<Color> heroBlue = [VitaColors.secondary, VitaColors.secondaryDark];
+  static const List<Color> heroTeal = [
+    VitaColors.primary,
+    VitaColors.primaryDark,
+  ];
+  static const List<Color> heroBlue = [
+    VitaColors.secondary,
+    VitaColors.secondaryDark,
+  ];
 
   /// Degradado principal de los botones y tarjetas de acción.
   static LinearGradient primary({
@@ -99,13 +126,35 @@ class VitaRadius {
 /// No llevan color de texto (lo toman del tema) salvo los "atenuados", que usan el gris del tema
 /// claro; en pantallas con modo oscuro usa `context.vita.muted` con `copyWith`.
 class VitaText {
-  static const TextStyle display = TextStyle(fontSize: 32, fontWeight: FontWeight.w900, height: 1.15);
-  static const TextStyle title = TextStyle(fontSize: 24, fontWeight: FontWeight.w800, height: 1.2);
-  static const TextStyle heading = TextStyle(fontSize: 20, fontWeight: FontWeight.w800);
+  static const TextStyle display = TextStyle(
+    fontSize: 32,
+    fontWeight: FontWeight.w900,
+    height: 1.15,
+  );
+  static const TextStyle title = TextStyle(
+    fontSize: 24,
+    fontWeight: FontWeight.w800,
+    height: 1.2,
+  );
+  static const TextStyle heading = TextStyle(
+    fontSize: 20,
+    fontWeight: FontWeight.w800,
+  );
   static const TextStyle body = TextStyle(fontSize: 18, height: 1.35);
-  static const TextStyle bodyMuted = TextStyle(fontSize: 17, height: 1.35, color: VitaColors.muted);
-  static const TextStyle label = TextStyle(fontSize: 16, fontWeight: FontWeight.w800);
-  static const TextStyle caption = TextStyle(fontSize: 14, height: 1.3, color: VitaColors.muted);
+  static const TextStyle bodyMuted = TextStyle(
+    fontSize: 17,
+    height: 1.35,
+    color: VitaColors.muted,
+  );
+  static const TextStyle label = TextStyle(
+    fontSize: 16,
+    fontWeight: FontWeight.w800,
+  );
+  static const TextStyle caption = TextStyle(
+    fontSize: 14,
+    height: 1.3,
+    color: VitaColors.muted,
+  );
   static const TextStyle overline = TextStyle(
     fontSize: 14,
     fontWeight: FontWeight.w800,
@@ -118,7 +167,11 @@ class VitaText {
 enum VitaTone { primary, info, success, warning, danger, neutral }
 
 class VitaToneColors {
-  const VitaToneColors({required this.fg, required this.bg, required this.border});
+  const VitaToneColors({
+    required this.fg,
+    required this.bg,
+    required this.border,
+  });
 
   final Color fg;
   final Color bg;
@@ -209,12 +262,36 @@ class VitaPalette extends ThemeExtension<VitaPalette> {
     neutralBg: VitaColors.neutralBg,
     accent: VitaColors.primary,
     accentBlue: VitaColors.secondary,
-    primaryTone: VitaToneColors(fg: VitaColors.primary, bg: VitaColors.tint, border: VitaColors.tintBorder),
-    infoTone: VitaToneColors(fg: VitaColors.secondary, bg: VitaColors.infoBg, border: VitaColors.infoBorder),
-    successTone: VitaToneColors(fg: VitaColors.success, bg: VitaColors.successBg, border: VitaColors.successBorder),
-    warningTone: VitaToneColors(fg: VitaColors.warning, bg: VitaColors.warningBg, border: VitaColors.warningBorder),
-    dangerTone: VitaToneColors(fg: VitaColors.alert, bg: VitaColors.alertBg, border: VitaColors.alertBorder),
-    neutralTone: VitaToneColors(fg: VitaColors.muted, bg: VitaColors.neutralBg, border: VitaColors.border),
+    primaryTone: VitaToneColors(
+      fg: VitaColors.primary,
+      bg: VitaColors.tint,
+      border: VitaColors.tintBorder,
+    ),
+    infoTone: VitaToneColors(
+      fg: VitaColors.secondary,
+      bg: VitaColors.infoBg,
+      border: VitaColors.infoBorder,
+    ),
+    successTone: VitaToneColors(
+      fg: VitaColors.success,
+      bg: VitaColors.successBg,
+      border: VitaColors.successBorder,
+    ),
+    warningTone: VitaToneColors(
+      fg: VitaColors.warning,
+      bg: VitaColors.warningBg,
+      border: VitaColors.warningBorder,
+    ),
+    dangerTone: VitaToneColors(
+      fg: VitaColors.alert,
+      bg: VitaColors.alertBg,
+      border: VitaColors.alertBorder,
+    ),
+    neutralTone: VitaToneColors(
+      fg: VitaColors.muted,
+      bg: VitaColors.neutralBg,
+      border: VitaColors.border,
+    ),
   );
 
   /// Oscuro azulado (no negro puro): menos cansado para la vista y combina con el verde azulado.
@@ -229,12 +306,36 @@ class VitaPalette extends ThemeExtension<VitaPalette> {
     neutralBg: Color(0xFF1F2A33),
     accent: Color(0xFF4FD1C0),
     accentBlue: Color(0xFF8DB4F2),
-    primaryTone: VitaToneColors(fg: Color(0xFF4FD1C0), bg: Color(0xFF12393A), border: Color(0xFF1F5C58)),
-    infoTone: VitaToneColors(fg: Color(0xFF8DB4F2), bg: Color(0xFF172A44), border: Color(0xFF2D4A75)),
-    successTone: VitaToneColors(fg: Color(0xFF7FD9A0), bg: Color(0xFF12301F), border: Color(0xFF245C3A)),
-    warningTone: VitaToneColors(fg: Color(0xFFF2C36B), bg: Color(0xFF33280E), border: Color(0xFF6B531F)),
-    dangerTone: VitaToneColors(fg: Color(0xFFFF8A80), bg: Color(0xFF3A1618), border: Color(0xFF7A2E2E)),
-    neutralTone: VitaToneColors(fg: Color(0xFF9DAEBB), bg: Color(0xFF1F2A33), border: Color(0xFF2B3A45)),
+    primaryTone: VitaToneColors(
+      fg: Color(0xFF4FD1C0),
+      bg: Color(0xFF12393A),
+      border: Color(0xFF1F5C58),
+    ),
+    infoTone: VitaToneColors(
+      fg: Color(0xFF8DB4F2),
+      bg: Color(0xFF172A44),
+      border: Color(0xFF2D4A75),
+    ),
+    successTone: VitaToneColors(
+      fg: Color(0xFF7FD9A0),
+      bg: Color(0xFF12301F),
+      border: Color(0xFF245C3A),
+    ),
+    warningTone: VitaToneColors(
+      fg: Color(0xFFF2C36B),
+      bg: Color(0xFF33280E),
+      border: Color(0xFF6B531F),
+    ),
+    dangerTone: VitaToneColors(
+      fg: Color(0xFFFF8A80),
+      bg: Color(0xFF3A1618),
+      border: Color(0xFF7A2E2E),
+    ),
+    neutralTone: VitaToneColors(
+      fg: Color(0xFF9DAEBB),
+      bg: Color(0xFF1F2A33),
+      border: Color(0xFF2B3A45),
+    ),
   );
 
   @override
@@ -250,7 +351,8 @@ class VitaPalette extends ThemeExtension<VitaPalette> {
 
 extension VitaContext on BuildContext {
   /// Colores del tema activo. Si por algún motivo no hay paleta, usa la clara.
-  VitaPalette get vita => Theme.of(this).extension<VitaPalette>() ?? VitaPalette.light;
+  VitaPalette get vita =>
+      Theme.of(this).extension<VitaPalette>() ?? VitaPalette.light;
 }
 
 class VitaTheme {
@@ -262,24 +364,25 @@ class VitaTheme {
   static ThemeData _build(Brightness brightness, VitaPalette p) {
     final isDark = brightness == Brightness.dark;
 
-    final scheme = ColorScheme.fromSeed(
-      seedColor: VitaColors.primary,
-      brightness: brightness,
-    ).copyWith(
-      primary: p.accent,
-      onPrimary: isDark ? const Color(0xFF00332D) : Colors.white,
-      primaryContainer: p.tint,
-      onPrimaryContainer: p.ink,
-      secondary: p.accentBlue,
-      onSecondary: isDark ? const Color(0xFF0B2547) : Colors.white,
-      error: isDark ? const Color(0xFFFF8A80) : VitaColors.alert,
-      onError: isDark ? const Color(0xFF410002) : Colors.white,
-      surface: p.surface,
-      onSurface: p.ink,
-      onSurfaceVariant: p.muted,
-      outline: p.border,
-      outlineVariant: p.border,
-    );
+    final scheme =
+        ColorScheme.fromSeed(
+          seedColor: VitaColors.primary,
+          brightness: brightness,
+        ).copyWith(
+          primary: p.accent,
+          onPrimary: isDark ? const Color(0xFF00332D) : Colors.white,
+          primaryContainer: p.tint,
+          onPrimaryContainer: p.ink,
+          secondary: p.accentBlue,
+          onSecondary: isDark ? const Color(0xFF0B2547) : Colors.white,
+          error: isDark ? const Color(0xFFFF8A80) : VitaColors.alert,
+          onError: isDark ? const Color(0xFF410002) : Colors.white,
+          surface: p.surface,
+          onSurface: p.ink,
+          onSurfaceVariant: p.muted,
+          outline: p.border,
+          outlineVariant: p.border,
+        );
 
     final base = ThemeData(
       useMaterial3: true,
@@ -291,7 +394,11 @@ class VitaTheme {
     final textTheme = base.textTheme
         .merge(
           const TextTheme(
-            headlineMedium: TextStyle(fontSize: 28, fontWeight: FontWeight.w800, height: 1.2),
+            headlineMedium: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w800,
+              height: 1.2,
+            ),
             titleLarge: TextStyle(fontSize: 22, fontWeight: FontWeight.w700),
             bodyLarge: TextStyle(fontSize: 18, height: 1.35),
             bodyMedium: TextStyle(fontSize: 18, height: 1.35),
@@ -315,7 +422,9 @@ class VitaTheme {
         scrolledUnderElevation: 0,
         centerTitle: true,
         // Iconos de la barra de estado: claros sobre fondo oscuro y al revés.
-        systemOverlayStyle: isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
+        systemOverlayStyle: isDark
+            ? SystemUiOverlayStyle.light
+            : SystemUiOverlayStyle.dark,
         titleTextStyle: TextStyle(
           fontFamily: 'Nunito',
           fontSize: 22,
@@ -328,7 +437,10 @@ class VitaTheme {
         filled: true,
         fillColor: p.surface,
         labelStyle: TextStyle(fontSize: 18, color: p.muted),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 18,
+          vertical: 18,
+        ),
         border: inputBorder,
         enabledBorder: inputBorder,
         focusedBorder: OutlineInputBorder(
@@ -339,14 +451,24 @@ class VitaTheme {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           minimumSize: const Size.fromHeight(56),
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w700),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(VitaRadius.md)),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(VitaRadius.md),
+          ),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
         style: TextButton.styleFrom(
           foregroundColor: p.accent,
-          textStyle: const TextStyle(fontFamily: 'Nunito', fontSize: 18, fontWeight: FontWeight.w700),
+          textStyle: const TextStyle(
+            fontFamily: 'Nunito',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+          ),
         ),
       ),
       dividerTheme: DividerThemeData(color: p.border, thickness: 1),
@@ -364,7 +486,9 @@ class VitaTheme {
       dialogTheme: DialogThemeData(
         backgroundColor: p.surface,
         surfaceTintColor: Colors.transparent,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(VitaRadius.lg)),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(VitaRadius.lg),
+        ),
         titleTextStyle: TextStyle(
           fontFamily: 'Nunito',
           fontSize: 22,
@@ -383,7 +507,9 @@ class VitaTheme {
         surfaceTintColor: Colors.transparent,
         showDragHandle: true,
         shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(VitaRadius.xl)),
+          borderRadius: BorderRadius.vertical(
+            top: Radius.circular(VitaRadius.xl),
+          ),
         ),
       ),
       navigationBarTheme: NavigationBarThemeData(

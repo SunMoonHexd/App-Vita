@@ -84,8 +84,9 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
   Widget _supportAction(BuildContext context) {
     final repo = VitaScope.of(context);
     final me = repo.currentUser;
-    if (me == null || me.role != UserRole.volunteer)
+    if (me == null || me.role != UserRole.volunteer) {
       return const SizedBox.shrink();
+    }
     final call = repo.requests
         .where(
           (r) =>
@@ -96,19 +97,25 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
     final support = repo.activeSupportFor(call.id);
     final String label;
     final IconData icon;
+    final bool canTap;
     if (support == null) {
-      label = 'Apoyo psicológico';
-      icon = Icons.favorite_border_rounded;
+      label = 'Pedir apoyo';
+      icon = Icons.support_agent_rounded;
+      canTap = true;
     } else if (support.status == SupportStatus.open) {
       label = 'Buscando psicólogo…';
       icon = Icons.hourglass_top_rounded;
+      canTap = true;
     } else {
       label = 'Psicólogo en camino';
       icon = Icons.check_circle_outline_rounded;
+      canTap = false;
     }
-    return GestureDetector(
+    return _SupportActionButton(
+      label: label,
+      icon: icon,
+      enabled: canTap,
       onTap: () => _onSupportTap(call, support),
-      child: _Pill(text: label, icon: icon),
     );
   }
 
@@ -187,6 +194,7 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
     final remote = _s.remoteVideo;
     final local = _s.localVideo;
     final recording = _s.isRecording;
+    final supportProfessional = _s.supportProfessionalName;
 
     // Solo se sale con el botón rojo, no con el gesto de "atrás".
     return PopScope(
@@ -232,6 +240,13 @@ class _LiveKitCallScreenState extends State<LiveKitCallScreen> {
                 left: 12,
                 child: _LinkPill(status: _s.linkStatus),
               ),
+              if (supportProfessional != null)
+                Positioned(
+                  top: 210,
+                  left: 12,
+                  right: 12,
+                  child: _SupportProfessionalBanner(name: supportProfessional),
+                ),
               // Tu cámara.
               if (_s.camOn && local != null)
                 Positioned(
@@ -408,7 +423,7 @@ class _Waiting extends StatelessWidget {
           Text(
             !connected
                 ? 'Esperando a la otra persona…'
-                : audioOnly && cameraOn != true
+                : audioOnly
                 ? 'Esta llamada es solo de voz'
                 : cameraOn == false
                 ? '$name tiene la cámara apagada'
@@ -528,14 +543,122 @@ class _Pill extends StatelessWidget {
   }
 }
 
+class _SupportActionButton extends StatelessWidget {
+  const _SupportActionButton({
+    required this.label,
+    required this.icon,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final String label;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = enabled ? const Color(0xFF65D6C8) : Colors.white70;
+    return Semantics(
+      button: enabled,
+      label: label,
+      child: Material(
+        color: const Color(0xE61B3434),
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(24),
+          child: Container(
+            constraints: const BoxConstraints(minHeight: 44, maxWidth: 190),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: color, width: 1.5),
+            ),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 19, color: color),
+                const SizedBox(width: 7),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      color: color,
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SupportProfessionalBanner extends StatelessWidget {
+  const _SupportProfessionalBanner({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: const Color(0xE61B3434),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: const Color(0xFF65D6C8), width: 1.5),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(
+          Icons.verified_user_rounded,
+          color: Color(0xFF65D6C8),
+          size: 22,
+        ),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text(
+                'Psicólogo autorizado por VITA',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w800,
+                  fontSize: 14,
+                ),
+              ),
+              Text(
+                '$name está en la llamada',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(color: Colors.white70, fontSize: 13),
+              ),
+            ],
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
 class _LinkPill extends StatelessWidget {
   const _LinkPill({required this.status});
 
   final LinkStatus status;
 
   IconData get _icon {
-    if (status.bars == 0)
+    if (status.bars == 0) {
       return status.warn ? Icons.wifi_off : Icons.wifi_1_bar;
+    }
     if (status.bars == 1) return Icons.wifi_1_bar;
     if (status.bars == 2) return Icons.wifi_2_bar;
     return Icons.wifi;

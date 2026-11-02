@@ -1,11 +1,13 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:speech_to_text/speech_to_text.dart';
 import 'package:vita_app/ui/core/theme/vita_theme.dart';
 import 'package:vita_app/ui/core/vita_scope.dart';
 import 'package:vita_app/ui/core/widgets/auth_widgets.dart';
 import 'package:vita_app/ui/core/widgets/vita_widgets.dart';
 import 'package:vita_app/ui/features/auth/onboarding_view.dart';
-import 'package:vita_app/ui/features/elderly/elderly_actions.dart';
 import 'package:vita_app/ui/features/elderly/elderly_help_view.dart';
 import 'package:vita_app/ui/features/elderly/elderly_profile_view.dart';
 import 'package:vita_app/ui/features/elderly/elderly_searching_view.dart';
@@ -18,8 +20,152 @@ class ElderlyHomeView extends StatefulWidget {
 }
 
 class _ElderlyHomeViewState extends State<ElderlyHomeView> {
+  final SpeechToText _speech = SpeechToText();
   bool _safetyNoticeScheduled = false;
   bool _showCallOptions = false;
+  bool _voiceListening = false;
+  bool _voiceCommandHandled = false;
+  String? _voiceMessage;
+
+  @override
+  void dispose() {
+    unawaited(_speech.cancel());
+    super.dispose();
+  }
+
+  Future<void> _toggleVoiceCommand() async {
+    if (_voiceListening) {
+      await _speech.cancel();
+      if (mounted) {
+        setState(() {
+          _voiceListening = false;
+          _voiceMessage = 'Escucha cancelada.';
+        });
+      }
+      return;
+    }
+
+    setState(() {
+      _voiceMessage = null;
+      _voiceCommandHandled = false;
+    });
+
+    final available = await _speech.initialize(
+      onError: (_) {
+        if (!mounted || _voiceCommandHandled) return;
+        setState(() {
+          _voiceListening = false;
+          _voiceMessage = 'No se pudo escuchar. Inténtalo de nuevo.';
+        });
+      },
+      onStatus: (status) {
+        if (status == 'notListening' &&
+            mounted &&
+            _voiceListening &&
+            !_voiceCommandHandled) {
+          setState(() {
+            _voiceListening = false;
+            _voiceMessage =
+                'No te escuché. Toca el micrófono e inténtalo otra vez.';
+          });
+        }
+      },
+    );
+    if (!mounted) return;
+    if (!available) {
+      setState(() {
+        _voiceMessage =
+            'El reconocimiento de voz no está disponible en este dispositivo.';
+      });
+      return;
+    }
+
+    final locales = await _speech.locales();
+    String? localeId;
+    for (final locale in locales) {
+      if (locale.localeId.toLowerCase().replaceAll('_', '-') == 'es-co') {
+        localeId = locale.localeId;
+        break;
+      }
+    }
+    if (localeId == null) {
+      for (final locale in locales) {
+        if (locale.localeId.toLowerCase().startsWith('es')) {
+          localeId = locale.localeId;
+          break;
+        }
+      }
+    }
+
+    setState(() {
+      _voiceListening = true;
+      _voiceMessage = 'Te escucho. Di: “Quiero hablar ahora”.';
+    });
+    try {
+      await _speech.listen(
+        listenOptions: SpeechListenOptions(
+          listenFor: const Duration(seconds: 10),
+          pauseFor: const Duration(seconds: 3),
+          localeId: localeId,
+          listenMode: ListenMode.confirmation,
+          partialResults: true,
+        ),
+        onResult: (result) {
+          if (_voiceCommandHandled) return;
+          final words = _normalizeVoiceText(result.recognizedWords);
+          final startsVoiceCall =
+              words.contains('quiero hablar ahora') ||
+              words.contains('llamada de voz') ||
+              words.contains('llamada por voz');
+          if (result.finalResult && startsVoiceCall) {
+            _startVoiceCall();
+          } else if (result.finalResult && mounted) {
+            setState(() {
+              _voiceListening = false;
+              _voiceMessage =
+                  'Di “Quiero hablar ahora” para iniciar una llamada.';
+            });
+            unawaited(_speech.stop());
+          }
+        },
+      );
+    } catch (_) {
+      if (mounted) {
+        setState(() {
+          _voiceListening = false;
+          _voiceMessage =
+              'No se pudo iniciar el micrófono. Revisa sus permisos.';
+        });
+      }
+    }
+  }
+
+  String _normalizeVoiceText(String text) => text
+      .toLowerCase()
+      .replaceAll('á', 'a')
+      .replaceAll('é', 'e')
+      .replaceAll('í', 'i')
+      .replaceAll('ó', 'o')
+      .replaceAll('ú', 'u')
+      .replaceAll(RegExp(r'[^a-zñ ]'), ' ')
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+
+  void _startVoiceCall() {
+    if (!mounted || _voiceCommandHandled) return;
+    _voiceCommandHandled = true;
+    setState(() {
+      _voiceListening = false;
+      _voiceMessage = 'De acuerdo, buscando a alguien para conversar.';
+    });
+    unawaited(_speech.stop());
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const ElderlySearchingView(audioOnly: true),
+      ),
+    );
+  }
 
   String _greeting() {
     final hour = DateTime.now().hour;
@@ -101,85 +247,107 @@ class _ElderlyHomeViewState extends State<ElderlyHomeView> {
         backgroundColor: VitaColors.bg,
         body: Column(
           children: [
-            VitaHeroHeader(
-              eyebrow: '${_greeting()}, qué gusto verte',
-              title: firstName,
-              trailing: Semantics(
-                button: true,
-                label: 'Mi perfil',
-                child: GestureDetector(
-                  onTap: () => _open(context, const ElderlyProfileView()),
-                  child: Container(
-                    padding: const EdgeInsets.all(3),
-                    decoration: const BoxDecoration(
-                      color: Colors.white,
-                      shape: BoxShape.circle,
-                    ),
-                    child: VitaAvatar(
-                      name: user.displayName,
-                      size: 58,
-                      photoBase64: user.photoBase64,
-                    ),
+            TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 650),
+              curve: Curves.easeOutCubic,
+              builder: (context, progress, child) {
+                final reduceMotion = MediaQuery.of(context).disableAnimations;
+                return Opacity(
+                  opacity: reduceMotion ? 1 : progress,
+                  child: Transform.translate(
+                    offset: reduceMotion
+                        ? Offset.zero
+                        : Offset(0, 14 * (1 - progress)),
+                    child: child,
                   ),
-                ),
-              ),
-              child: Row(
-                children: [
-                  Container(
-                    width: 48,
-                    height: 48,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.12),
-                          blurRadius: 12,
-                          offset: const Offset(0, 4),
-                        ),
-                      ],
-                    ),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(16),
-                      child: Image.asset(
-                        'assets/icon/logo.png',
-                        fit: BoxFit.cover,
-                        cacheWidth: 144,
+                );
+              },
+              child: VitaHeroHeader(
+                eyebrow: '${_greeting()}, qué gusto verte',
+                title: firstName,
+                trailing: Semantics(
+                  button: true,
+                  label: 'Mi perfil',
+                  child: GestureDetector(
+                    onTap: () => _open(context, const ElderlyProfileView()),
+                    child: Container(
+                      padding: const EdgeInsets.all(3),
+                      decoration: const BoxDecoration(
+                        color: Colors.white,
+                        shape: BoxShape.circle,
+                      ),
+                      child: VitaAvatar(
+                        name: user.displayName,
+                        size: 68,
+                        photoBase64: user.photoBase64,
                       ),
                     ),
                   ),
-                  const SizedBox(width: VitaSpace.md),
-                  Expanded(
-                    child: Wrap(
-                      spacing: VitaSpace.sm,
-                      runSpacing: VitaSpace.sm,
+                ),
+                child: Column(
+                  children: [
+                    Row(
                       children: [
-                        const VitaConnectionPill(),
-                        _AvailabilityChip(count: volunteers),
+                        Container(
+                          width: 60,
+                          height: 60,
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(18),
+                            boxShadow: [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.12),
+                                blurRadius: 12,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
+                          ),
+                          child: ClipRRect(
+                            borderRadius: BorderRadius.circular(18),
+                            child: Image.asset(
+                              'assets/icon/logo.png',
+                              fit: BoxFit.cover,
+                              cacheWidth: 180,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: VitaSpace.md),
+                        Expanded(
+                          child: Wrap(
+                            spacing: VitaSpace.sm,
+                            runSpacing: VitaSpace.sm,
+                            children: [
+                              const VitaConnectionPill(),
+                              _AvailabilityChip(count: volunteers),
+                            ],
+                          ),
+                        ),
                       ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: VitaSpace.md),
+                  ],
+                ),
               ),
             ),
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.fromLTRB(22, 26, 22, 24),
                 children: [
-                  Text(
-                    _showCallOptions
-                        ? '¿Cómo prefieres conversar?'
-                        : '¿Quieres conversar con alguien?',
-                    textAlign: TextAlign.center,
-                    style: VitaText.title.copyWith(fontSize: 26),
-                  ),
-                  const SizedBox(height: VitaSpace.sm),
+                  if (_showCallOptions) ...[
+                    Text(
+                      '¿Cómo prefieres conversar?',
+                      textAlign: TextAlign.center,
+                      style: VitaText.title.copyWith(fontSize: 26),
+                    ),
+                    const SizedBox(height: VitaSpace.sm),
+                  ],
                   Text(
                     _showCallOptions
                         ? 'Elige una opción y te conectaremos con un voluntario.'
                         : hasVolunteers
-                        ? 'Pulsa el botón cuando quieras hablar con un voluntario.'
-                        : 'Ahora no hay voluntarios disponibles. Puedes intentarlo en un momento.',
+                        ? 'Toca el botón para elegir cómo conversar.'
+                        : 'No hay voluntarios disponibles por ahora. Puedes intentarlo más tarde.',
                     textAlign: TextAlign.center,
                     style: VitaText.bodyMuted.copyWith(fontSize: 18),
                   ),
@@ -204,47 +372,150 @@ class _ElderlyHomeViewState extends State<ElderlyHomeView> {
                     _TalkNowButton(
                       onPressed: () => setState(() => _showCallOptions = true),
                     ),
-                  const SizedBox(height: VitaSpace.lg),
-                  // "Salir" no vive en la barra inferior, para no confundirlo con la navegación.
-                  Center(
-                    child: TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: VitaColors.muted,
-                      ),
-                      onPressed: () => confirmLogout(context),
-                      icon: const Icon(Icons.logout_rounded),
-                      label: const Text('Cerrar sesión'),
+                  if (!_showCallOptions) ...[
+                    const SizedBox(height: VitaSpace.md),
+                    _VoiceCommandButton(
+                      listening: _voiceListening,
+                      message: _voiceMessage,
+                      onPressed: _toggleVoiceCommand,
                     ),
-                  ),
+                    const SizedBox(height: VitaSpace.lg),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _ElderlyQuickAction(
+                            icon: Icons.person_rounded,
+                            title: 'Mi perfil',
+                            gradient: const [
+                              VitaColors.infoBorder,
+                              VitaColors.infoBg,
+                            ],
+                            foreground: VitaColors.secondaryDark,
+                            onTap: () =>
+                                _open(context, const ElderlyProfileView()),
+                          ),
+                        ),
+                        const SizedBox(width: VitaSpace.md),
+                        Expanded(
+                          child: _ElderlyQuickAction(
+                            icon: Icons.help_rounded,
+                            title: 'Ayuda',
+                            gradient: const [
+                              VitaColors.lavenderBorder,
+                              VitaColors.lavenderBg,
+                            ],
+                            foreground: VitaColors.lavender,
+                            onTap: () =>
+                                _open(context, const ElderlyHelpView()),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
           ],
         ),
-        bottomNavigationBar: VitaNavBar(
-          items: const [
-            VitaNavItem(
-              icon: Icons.home_outlined,
-              selectedIcon: Icons.home_rounded,
-              label: 'Inicio',
-            ),
-            VitaNavItem(
-              icon: Icons.person_outline_rounded,
-              selectedIcon: Icons.person_rounded,
-              label: 'Mi perfil',
-            ),
-            VitaNavItem(
-              icon: Icons.help_outline_rounded,
-              selectedIcon: Icons.help_rounded,
-              label: 'Ayuda',
-            ),
-          ],
-          onSelected: (index) {
-            if (index == 1) _open(context, const ElderlyProfileView());
-            if (index == 2) _open(context, const ElderlyHelpView());
-          },
-        ),
       ),
+    );
+  }
+}
+
+class _VoiceCommandButton extends StatelessWidget {
+  const _VoiceCommandButton({
+    required this.listening,
+    required this.message,
+    required this.onPressed,
+  });
+
+  final bool listening;
+  final String? message;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = listening ? VitaColors.lavender : VitaColors.secondaryDark;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Semantics(
+          button: true,
+          label: listening
+              ? 'Detener reconocimiento de voz'
+              : 'Iniciar una llamada diciendo “Quiero hablar ahora”',
+          child: Material(
+            color: Colors.transparent,
+            borderRadius: BorderRadius.circular(24),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onPressed,
+              child: Ink(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: 16,
+                ),
+                decoration: BoxDecoration(
+                  color: listening ? VitaColors.lavenderBg : VitaColors.infoBg,
+                  borderRadius: BorderRadius.circular(24),
+                  border: Border.all(
+                    color: listening
+                        ? VitaColors.lavenderBorder
+                        : VitaColors.infoBorder,
+                    width: 2,
+                  ),
+                ),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 58,
+                      height: 58,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.8),
+                        borderRadius: BorderRadius.circular(18),
+                      ),
+                      child: Icon(
+                        listening
+                            ? Icons.graphic_eq_rounded
+                            : Icons.mic_rounded,
+                        color: color,
+                        size: 36,
+                      ),
+                    ),
+                    const SizedBox(width: 16),
+                    Expanded(
+                      child: Text(
+                        listening ? 'Te escucho…' : 'Llamar usando mi voz',
+                        style: TextStyle(
+                          fontFamily: 'Nunito',
+                          color: color,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w900,
+                        ),
+                      ),
+                    ),
+                    Icon(
+                      listening
+                          ? Icons.stop_circle_outlined
+                          : Icons.chevron_right_rounded,
+                      color: color,
+                      size: 30,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        if (message != null) ...[
+          const SizedBox(height: 8),
+          Text(
+            message!,
+            textAlign: TextAlign.center,
+            style: VitaText.bodyMuted.copyWith(fontSize: 15),
+          ),
+        ],
+      ],
     );
   }
 }
@@ -320,17 +591,17 @@ class _TalkNowButtonState extends State<_TalkNowButton>
           child: InkWell(
             onTap: widget.onPressed,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 184),
+              constraints: const BoxConstraints(minHeight: 190),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
-                  horizontal: 20,
-                  vertical: 24,
+                  horizontal: 18,
+                  vertical: 20,
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 96,
-                      height: 96,
+                      width: 82,
+                      height: 82,
                       decoration: BoxDecoration(
                         color: Colors.white.withValues(alpha: 0.22),
                         borderRadius: BorderRadius.circular(24),
@@ -338,43 +609,42 @@ class _TalkNowButtonState extends State<_TalkNowButton>
                       child: const Icon(
                         Icons.chat_bubble_rounded,
                         color: Colors.white,
-                        size: 56,
+                        size: 48,
                       ),
                     ),
-                    const SizedBox(width: 18),
+                    const SizedBox(width: 14),
                     const Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text.rich(
-                            TextSpan(
-                              children: [
-                                TextSpan(
-                                  text: 'Quiero hablar\n',
-                                  style: TextStyle(
-                                    fontFamily: 'Nunito',
-                                    color: Colors.white,
-                                    fontSize: 27,
-                                    height: 1.05,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: 0.15,
-                                  ),
-                                ),
-                                TextSpan(
-                                  text: 'ahora',
-                                  style: TextStyle(
-                                    fontFamily: 'Nunito',
-                                    color: Colors.white,
-                                    fontSize: 35,
-                                    height: 1.05,
-                                    fontWeight: FontWeight.w900,
-                                    letterSpacing: 0.25,
-                                  ),
-                                ),
-                              ],
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              'Quiero hablar',
+                              maxLines: 1,
+                              softWrap: false,
+                              style: TextStyle(
+                                fontFamily: 'Nunito',
+                                color: Colors.white,
+                                fontSize: 27,
+                                height: 1.08,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.1,
+                              ),
                             ),
-                            textAlign: TextAlign.start,
+                          ),
+                          Text(
+                            'ahora',
+                            style: TextStyle(
+                              fontFamily: 'Nunito',
+                              color: Colors.white,
+                              fontSize: 34,
+                              height: 1.08,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.2,
+                            ),
                           ),
                           SizedBox(height: 7),
                           Text(
@@ -382,7 +652,7 @@ class _TalkNowButtonState extends State<_TalkNowButton>
                             style: TextStyle(
                               fontFamily: 'Nunito',
                               color: Colors.white,
-                              fontSize: 19,
+                              fontSize: 17,
                               height: 1.2,
                               fontWeight: FontWeight.w700,
                             ),
@@ -394,7 +664,7 @@ class _TalkNowButtonState extends State<_TalkNowButton>
                     const Icon(
                       Icons.chevron_right_rounded,
                       color: Colors.white,
-                      size: 34,
+                      size: 32,
                     ),
                   ],
                 ),
@@ -411,6 +681,89 @@ class _TalkNowButtonState extends State<_TalkNowButton>
       child: button,
       builder: (context, child) =>
           Transform.scale(scale: 1 + (_pulse.value * 0.015), child: child),
+    );
+  }
+}
+
+class _ElderlyQuickAction extends StatelessWidget {
+  const _ElderlyQuickAction({
+    required this.icon,
+    required this.title,
+    required this.gradient,
+    required this.foreground,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String title;
+  final List<Color> gradient;
+  final Color foreground;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      button: true,
+      label: title,
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(22),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(22),
+          child: Ink(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: gradient,
+              ),
+              borderRadius: BorderRadius.circular(22),
+              boxShadow: [
+                BoxShadow(
+                  color: foreground.withValues(alpha: 0.16),
+                  blurRadius: 16,
+                  offset: const Offset(0, 6),
+                ),
+              ],
+            ),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 210),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 22,
+                ),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Container(
+                      width: 88,
+                      height: 88,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.7),
+                        borderRadius: BorderRadius.circular(26),
+                      ),
+                      child: Icon(icon, color: foreground, size: 70),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: foreground,
+                        fontSize: 22,
+                        fontWeight: FontWeight.w900,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -544,22 +897,22 @@ class _CallOption extends StatelessWidget {
           child: InkWell(
             onTap: onTap,
             child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 116),
+              constraints: const BoxConstraints(minHeight: 146),
               child: Padding(
                 padding: const EdgeInsets.symmetric(
                   horizontal: 18,
-                  vertical: 16,
+                  vertical: 18,
                 ),
                 child: Row(
                   children: [
                     Container(
-                      width: 68,
-                      height: 68,
+                      width: 76,
+                      height: 76,
                       decoration: BoxDecoration(
                         color: foreground.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(20),
                       ),
-                      child: Icon(icon, color: foreground, size: 38),
+                      child: Icon(icon, color: foreground, size: 42),
                     ),
                     const SizedBox(width: 16),
                     Expanded(
@@ -571,7 +924,7 @@ class _CallOption extends StatelessWidget {
                             title,
                             style: TextStyle(
                               color: foreground,
-                              fontSize: 24,
+                              fontSize: 25,
                               height: 1.15,
                               fontWeight: FontWeight.w900,
                             ),
@@ -581,7 +934,7 @@ class _CallOption extends StatelessWidget {
                             subtitle,
                             style: TextStyle(
                               color: foreground,
-                              fontSize: 17,
+                              fontSize: 18,
                               height: 1.2,
                               fontWeight: FontWeight.w600,
                             ),

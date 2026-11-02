@@ -65,6 +65,40 @@ class _PsychologistHomeViewState extends State<PsychologistHomeView> {
     }
   }
 
+  Future<void> _closeSupport(SupportRequest request) async {
+    final shouldClose = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Cerrar solicitud'),
+        content: const Text(
+          'La solicitud dejará de aparecer en «En curso». Se conservará en el historial.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Volver'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Cerrar solicitud'),
+          ),
+        ],
+      ),
+    );
+    if (shouldClose != true) return;
+    final repo = VitaScope.of(context);
+    try {
+      await repo.closeSupport(request.id);
+    } catch (e) {
+      if (mounted) {
+        await showVitaMessage(
+          context,
+          e.toString().replaceFirst('Exception: ', ''),
+        );
+      }
+    }
+  }
+
   String _since(DateTime t) {
     final m = DateTime.now().difference(t).inMinutes;
     if (m < 1) return 'hace menos de 1 min';
@@ -107,7 +141,8 @@ class _PsychologistHomeViewState extends State<PsychologistHomeView> {
         children: [
           const Text(
             'Cuando un voluntario note a una persona muy triste, la solicitud aparece aquí. '
-            'Al aceptar, entras a la misma videollamada. Mantén la app abierta para ver las solicitudes.',
+            'Al aceptar, entras a la misma llamada. Las solicitudes de llamadas con más de 4 horas '
+            'se ocultan porque ya no se consideran vigentes.',
           ),
           const SizedBox(height: 16),
           if (mine.isNotEmpty) ...[
@@ -125,11 +160,17 @@ class _PsychologistHomeViewState extends State<PsychologistHomeView> {
                     label: _busyId == r.id ? 'Conectando…' : 'Volver a unirme',
                     onPressed: _busyId == null ? () => _rejoin(r) : null,
                   ),
+                  const SizedBox(height: 4),
+                  TextButton.icon(
+                    onPressed: _busyId == null ? () => _closeSupport(r) : null,
+                    icon: const Icon(Icons.check_circle_outline_rounded),
+                    label: const Text('Cerrar solicitud'),
+                  ),
                 ],
               ),
             const SizedBox(height: 16),
           ],
-          const Text('Solicitudes abiertas', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
+          const Text('Solicitudes pendientes', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 20)),
           const SizedBox(height: 8),
           if (open.isEmpty) const Text('No hay solicitudes por ahora.'),
           for (final r in open) ...[

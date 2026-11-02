@@ -241,22 +241,31 @@ const validId = (v) => typeof v === 'string' && /^[A-Za-z0-9_-]{1,120}$/.test(v)
  * Debe ser un psicólogo activo y tener una solicitud de apoyo ACEPTADA por él,
  * de esta misma llamada y de esta misma sala.
  */
-async function canJoinAsPsychologist(env, accessToken, uid, body) {
-  if (!validId(body.supportRequestId)) return false;
+async function psychologistJoinFailure(env, accessToken, uid, body) {
+  if (!validId(body.supportRequestId)) {
+    return 'No se envió un identificador válido de la solicitud de apoyo.';
+  }
   const [user, support] = await Promise.all([
     getFirestoreDocument(env, accessToken, `users/${uid}`),
     getFirestoreDocument(env, accessToken, `supportRequests/${body.supportRequestId}`),
   ]);
-  return (
-    !!user &&
-    !!support &&
-    stringField(user, 'role') === 'psychologist' &&
-    stringField(user, 'status') === 'active' &&
-    stringField(support, 'status') === 'accepted' &&
-    stringField(support, 'psychologistId') === uid &&
-    stringField(support, 'callId') === body.requestId &&
-    stringField(support, 'roomName') === body.roomName
-  );
+  if (!user || stringField(user, 'role') !== 'psychologist' || stringField(user, 'status') !== 'active') {
+    return 'La cuenta profesional no está activa en Firestore.';
+  }
+  if (!support) return 'No se encontró la solicitud en supportRequests.';
+  if (stringField(support, 'status') !== 'accepted') {
+    return 'La solicitud de apoyo todavía no figura como aceptada en Firestore.';
+  }
+  if (stringField(support, 'psychologistId') !== uid) {
+    return 'La solicitud fue aceptada por otra cuenta profesional.';
+  }
+  if (stringField(support, 'callId') !== body.requestId) {
+    return 'La solicitud de apoyo apunta a una llamada distinta.';
+  }
+  if (stringField(support, 'roomName') !== body.roomName) {
+    return 'El nombre de sala de la solicitud no coincide con el de la llamada.';
+  }
+  return null;
 }
 
 const validRoom = (r) => typeof r === 'string' && /^[A-Za-z0-9_-]{8,80}$/.test(r);
@@ -303,18 +312,32 @@ export default {
         }
         const accessToken = await getGoogleAccessToken(env);
         const call = await getFirestoreDocument(env, accessToken, `requests/${body.requestId}`);
+        // Un psicólogo no es parte de la llamada: entra solo con una solicitud de apoyo aceptada.
+        if (!call) {
+          return json({
+            error: 'No tienes acceso a esta llamada.',
+            detail: 'No se encontró el documento de llamada en requests.',
+          }, 403);
+        }
         const isParticipant =
           stringField(call, 'elderlyId') === uid || stringField(call, 'volunteerId') === uid;
-        // Un psicólogo no es parte de la llamada: entra solo con una solicitud de apoyo aceptada.
-        const isSupport =
-          !!call && !isParticipant && (await canJoinAsPsychologist(env, accessToken, uid, body));
-        if (
-          !call ||
-          !(isParticipant || isSupport) ||
-          stringField(call, 'status') !== 'connected' ||
-          stringField(call, 'roomName') !== body.roomName
-        ) {
-          return json({ error: 'No tienes acceso a esta llamada.' }, 403);
+        if (stringField(call, 'status') !== 'connected') {
+          return json({
+            error: 'No tienes acceso a esta llamada.',
+            detail: 'La llamada ya no está activa en Firestore. Inicia una llamada nueva para pedir apoyo.',
+          }, 403);
+        }
+        if (stringField(call, 'roomName') !== body.roomName) {
+          return json({
+            error: 'No tienes acceso a esta llamada.',
+            detail: 'La sala de la llamada no coincide con la sala solicitada.',
+          }, 403);
+        }
+        if (!isParticipant) {
+          const failure = await psychologistJoinFailure(env, accessToken, uid, body);
+          if (failure) {
+            return json({ error: 'No tienes acceso a esta llamada.', detail: failure }, 403);
+          }
         }
         const name = String(body.displayName || 'Participante').slice(0, 60);
         const at = new AccessToken(env.LIVEKIT_API_KEY, env.LIVEKIT_API_SECRET, {

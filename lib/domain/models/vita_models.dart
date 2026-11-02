@@ -487,6 +487,7 @@ class EmergencyAlert {
     required this.triggeredById,
     required this.elderlyId,
     required this.createdAt,
+    this.audioOnly = false,
     this.note,
     this.status = AlertStatus.open,
     this.takenById,
@@ -506,6 +507,7 @@ class EmergencyAlert {
   final String triggeredById;
   final String elderlyId;
   final DateTime createdAt;
+  final bool audioOnly;
   final String? note;
   final AlertStatus status;
   final String? takenById;
@@ -540,6 +542,7 @@ class EmergencyAlert {
       triggeredById: triggeredById,
       elderlyId: elderlyId,
       createdAt: createdAt,
+      audioOnly: audioOnly,
       note: note,
       status: status ?? this.status,
       takenById: takenById ?? this.takenById,
@@ -638,6 +641,7 @@ class SupportRequest {
     required this.requestedById,
     required this.elderlyId,
     required this.createdAt,
+    this.audioOnly = false,
     this.note,
     this.status = SupportStatus.open,
     this.psychologistId,
@@ -651,6 +655,7 @@ class SupportRequest {
   final String requestedById;
   final String elderlyId;
   final DateTime createdAt;
+  final bool audioOnly;
   final String? note;
   final SupportStatus status;
   final String? psychologistId;
@@ -672,6 +677,7 @@ class SupportRequest {
       requestedById: requestedById,
       elderlyId: elderlyId,
       createdAt: createdAt,
+      audioOnly: audioOnly,
       note: note,
       status: status ?? this.status,
       psychologistId: psychologistId ?? this.psychologistId,
@@ -688,6 +694,7 @@ class SupportRequest {
     requestedById: kAnonymized,
     elderlyId: kAnonymized,
     createdAt: createdAt,
+    audioOnly: audioOnly,
     status: status,
     psychologistId: psychologistId == null ? null : kAnonymized,
     acceptedAt: acceptedAt,
@@ -700,6 +707,7 @@ class SupportRequest {
     'roomName': roomName,
     'requestedById': requestedById,
     'elderlyId': elderlyId,
+    'audioOnly': audioOnly,
     'note': note,
     'createdAt': vitaIso(createdAt),
     'status': status.name,
@@ -714,6 +722,7 @@ class SupportRequest {
     roomName: json['roomName'] as String,
     requestedById: json['requestedById'] as String,
     elderlyId: json['elderlyId'] as String,
+    audioOnly: json['audioOnly'] as bool? ?? false,
     note: json['note'] as String?,
     createdAt: DateTime.parse(json['createdAt'] as String),
     status: _enumByName(

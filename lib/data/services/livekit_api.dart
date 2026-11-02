@@ -20,8 +20,9 @@ class LiveKitApi {
       );
     }
     final user = FirebaseAuth.instance.currentUser;
-    if (user == null)
+    if (user == null) {
       throw Exception('Inicia sesión para usar la videollamada.');
+    }
     final idToken = await user.getIdToken();
     try {
       final response = await http
@@ -63,7 +64,7 @@ class LiveKitApi {
       'requestId': requestId,
       'displayName': displayName,
       // Solo el psicólogo lo envía: el Worker comprueba que esa solicitud de apoyo esté aceptada por él.
-      if (supportRequestId != null) 'supportRequestId': supportRequestId,
+      'supportRequestId': ?supportRequestId,
     });
     return (url: data['url'] as String, token: data['token'] as String);
   }

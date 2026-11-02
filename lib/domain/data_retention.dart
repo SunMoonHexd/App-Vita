@@ -1,4 +1,5 @@
 /// Retención y anonimización de datos (RF44 · F18.7).
+library;
 
 /// Tiempo que se conservan los datos de llamadas, reportes y alertas antes de anonimizarlos.
 const int kDefaultRetentionDays = 365;

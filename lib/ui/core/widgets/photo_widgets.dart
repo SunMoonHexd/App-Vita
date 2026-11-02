@@ -144,11 +144,12 @@ Future<void> changeProfilePhoto(BuildContext context) async {
     if (file == null) return; // cerró el selector sin elegir nada
     final bytes = await file.readAsBytes();
     if (bytes.length > _maxPhotoBytes) {
-      if (context.mounted)
+      if (context.mounted) {
         await showVitaMessage(
           context,
           'La foto es muy pesada. Prueba con otra.',
         );
+      }
       return;
     }
     await repo.setProfilePhoto(base64Encode(bytes));

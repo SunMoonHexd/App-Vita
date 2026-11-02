@@ -82,8 +82,9 @@ class _ElderlySearchingViewState extends State<ElderlySearchingView> {
     );
     if (latest == null) return;
     if (latest.status == current.status &&
-        latest.volunteerId == current.volunteerId)
+        latest.volunteerId == current.volunteerId) {
       return;
+    }
     setState(() => _request = latest);
     _watch(latest);
   }

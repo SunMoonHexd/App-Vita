@@ -7,7 +7,7 @@ import 'package:vita_app/domain/models/vita_models.dart';
 /// Solo voluntarios y coordinación pueden elegir (ver [canChooseTheme]); el adulto mayor y las
 /// pantallas de ingreso siempre se ven en claro, para que no cambie nada para ellos.
 class VitaThemeController extends ChangeNotifier {
-  VitaThemeController({SharedPreferences? preferences}) : _preferences = preferences;
+  VitaThemeController({this._preferences});
 
   static const _key = 'vita_theme_mode';
 

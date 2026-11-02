@@ -3,7 +3,7 @@ import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class LocalStorageService {
-  LocalStorageService({SharedPreferences? preferences}) : _preferences = preferences;
+  LocalStorageService({this._preferences});
 
   static const _key = 'vita_store_v1';
 

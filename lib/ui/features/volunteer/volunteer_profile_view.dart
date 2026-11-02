@@ -21,6 +21,13 @@ String _maskDocument(String? value) {
   return '${'•' * (v.length - 4)}${v.substring(v.length - 4)}';
 }
 
+String _documentProfileValue(VitaUser user) {
+  if (user.identityVerified) {
+    return 'Identidad verificada · número eliminado por privacidad';
+  }
+  return _maskDocument(user.documentId);
+}
+
 class VolunteerProfileView extends StatelessWidget {
   const VolunteerProfileView({super.key});
 
@@ -112,7 +119,11 @@ class VolunteerProfileView extends StatelessWidget {
                         value: (user.email ?? '').isEmpty ? 'Sin registrar' : user.email!,
                       ),
                       const Divider(height: 1, indent: 20, endIndent: 20),
-                      VitaDataRow(emoji: '🪪', label: 'Documento', value: _maskDocument(user.documentId)),
+                      VitaDataRow(
+                        emoji: '🪪',
+                        label: 'Documento',
+                        value: _documentProfileValue(user),
+                      ),
                       const SizedBox(height: 8),
                     ],
                   ),

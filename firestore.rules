@@ -71,6 +71,23 @@ service cloud.firestore {
     match /private/{userId} {
       allow read: if signedIn() && (uid() == userId || isCoordinator());
       allow create, update, delete: if signedIn() && uid() == userId;
+      // Coordinación solo puede completar una revisión de identidad de un voluntario:
+      // debe haber consentimiento y fotos previas, y la operación tiene que borrarlas.
+      allow update: if isCoordinator()
+        && get(/databases/$(database)/documents/users/$(userId)).data.role == 'volunteer'
+        && resource.data.get('identityDocumentConsent', false) == true
+        && resource.data.get('idFrontBase64', null) is string
+        && resource.data.get('idBackBase64', null) is string
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'documentId', 'idFrontBase64', 'idBackBase64',
+          'idDocumentsUploadedAt', 'identityVerifiedAt', 'identityVerifiedBy'
+        ])
+        && request.resource.data.get('documentId', null) == null
+        && request.resource.data.get('idFrontBase64', null) == null
+        && request.resource.data.get('idBackBase64', null) == null
+        && request.resource.data.get('idDocumentsUploadedAt', null) == null
+        && request.resource.data.get('identityVerifiedAt', null) is string
+        && request.resource.data.get('identityVerifiedBy', null) == uid();
     }
 
     // Token privado del dispositivo para notificaciones al voluntario.

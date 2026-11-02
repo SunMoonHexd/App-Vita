@@ -5,6 +5,7 @@ import 'package:cloud_firestore/cloud_firestore.dart'
     show
         DocumentChangeType,
         DocumentSnapshot,
+        FirebaseException,
         FirebaseFirestore,
         Query,
         QuerySnapshot,
@@ -110,6 +111,9 @@ class VitaRepository extends ChangeNotifier {
   static const maxReassigns = 3;
   static const maxFailedAttempts = 5;
   static const lockDuration = Duration(minutes: 15);
+  // La llamada se considera interrumpida tras cuatro horas; sus solicitudes de apoyo
+  // dejan de ser accionables al mismo tiempo.
+  static const supportRequestMaxAge = Duration(hours: 4);
   static const _writeTimeout = Duration(seconds: 8);
 
   /// Un voluntario sin "latido" en este tiempo se considera desconectado.
@@ -1180,20 +1184,36 @@ class VitaRepository extends ChangeNotifier {
       throw Exception('El voluntario debe cargar una foto personal para comparar con la cédula.');
     }
     final coordinator = currentUser;
+    final coordinatorUid = _auth.currentUser?.uid;
+    if (coordinator == null || coordinator.role != UserRole.coordinator) {
+      throw Exception('Inicia sesión con una cuenta de coordinación para revisar la cédula.');
+    }
+    if (coordinatorUid == null) {
+      throw Exception('La sesión de coordinación expiró. Vuelve a iniciar sesión.');
+    }
+    final verifiedAt = _now();
     final verifiedUser = user.copyWith(
       clearIdFront: true,
       clearIdBack: true,
       clearIdDocumentsUploadedAt: true,
       clearDocumentId: true,
       identityVerified: true,
-      identityVerifiedAt: _now(),
-      identityVerifiedBy: coordinator?.id,
+      identityVerifiedAt: verifiedAt,
+      identityVerifiedBy: coordinatorUid,
     );
-    // Borra las imágenes del documento privado antes de publicar la marca de verificación.
-    await _db.collection('private').doc(user.id).set(
-      _privateJson(verifiedUser),
-      SetOptions(merge: true),
-    );
+    // Borra las imágenes y registra la revisión. El UID viene de Firebase Auth para que
+    // coincida exactamente con uid() en las reglas de Firestore.
+    final privateData = <String, dynamic>{
+      'documentId': null,
+      'idFrontBase64': null,
+      'idBackBase64': null,
+      'idDocumentsUploadedAt': null,
+      'identityVerifiedAt': vitaIso(verifiedAt),
+      'identityVerifiedBy': coordinatorUid,
+    };
+    await _db.collection('private').doc(user.id).update(privateData);
+    _privById[user.id] = _privateJson(verifiedUser);
+    _syncedPriv[user.id] = _privateJson(verifiedUser);
     _users[i] = verifiedUser;
     await _commit();
     unawaited(_audit('volunteer_identity_verified', targetId: userId));
@@ -1605,6 +1625,11 @@ class VitaRepository extends ChangeNotifier {
         userId: user.id,
         profilePhotoBase64: user.photoBase64,
         audioOnly: request.audioOnly,
+        leaveWhenSupportJoins: user.role == UserRole.volunteer,
+        onSupportHandoff: () {
+          // El voluntario deja la sala, pero no finaliza la llamada de las otras personas.
+          _callInProgressId = null;
+        },
         onTerminated: () {
           _callInProgressId = null;
           finishCall(request.id);
@@ -1656,14 +1681,21 @@ class VitaRepository extends ChangeNotifier {
       .where(
         (s) =>
             s.callId == callId &&
+            _now().difference(s.createdAt) <= supportRequestMaxAge &&
             (s.status == SupportStatus.open ||
                 s.status == SupportStatus.accepted),
       )
       .firstOrNull;
 
-  /// Solicitudes que un psicólogo puede tomar ahora, la más antigua primero.
+  /// Solicitudes recientes que un psicólogo puede tomar, la más antigua primero.
   List<SupportRequest> get openSupportRequests =>
-      _supports.where((s) => s.status == SupportStatus.open).toList()
+      _supports
+        .where(
+          (s) =>
+              s.status == SupportStatus.open &&
+              _now().difference(s.createdAt) <= supportRequestMaxAge,
+        )
+        .toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   /// Solicitudes que este psicólogo ya aceptó y siguen en curso.
@@ -1673,7 +1705,9 @@ class VitaRepository extends ChangeNotifier {
     return _supports
         .where(
           (s) =>
-              s.status == SupportStatus.accepted && s.psychologistId == me.id,
+              s.status == SupportStatus.accepted &&
+              s.psychologistId == me.id &&
+              _now().difference(s.createdAt) <= supportRequestMaxAge,
         )
         .toList();
   }
@@ -1697,18 +1731,45 @@ class VitaRepository extends ChangeNotifier {
       );
     }
     final existing = activeSupportFor(callId);
-    if (existing != null) return existing;
+    if (existing != null) {
+      _jitsi.watchForSupportHandoff(existing.id);
+      return existing;
+    }
     final request = SupportRequest(
       id: _uuid.v4(),
       callId: callId,
       roomName: call.roomName,
       requestedById: me.id,
       elderlyId: call.elderlyId,
+      audioOnly: call.audioOnly,
       note: note,
       createdAt: _now(),
     );
+    // Registra primero el identificador para no perder el aviso si el profesional
+    // acepta la solicitud apenas aparece en Firestore.
+    _jitsi.watchForSupportHandoff(request.id);
+    // Persist before publishing locally. The generic _push() intentionally records sync
+    // failures instead of throwing, which can make a support request look successful even
+    // when Firestore rules rejected it.
+    try {
+      await _db
+          .collection('supportRequests')
+          .doc(request.id)
+          .set(request.toJson())
+          .timeout(_writeTimeout);
+    } on FirebaseException catch (e) {
+      _jitsi.watchForSupportHandoff(null);
+      throw Exception(
+        'No se pudo guardar la solicitud de apoyo en Firestore (${e.code}).',
+      );
+    } on TimeoutException {
+      throw Exception(
+        'Firestore no confirmó la solicitud de apoyo. Revisa tu conexión e inténtalo de nuevo.',
+      );
+    }
     _supports.add(request);
-    await _commit();
+    _supportsSync.synced[request.id] = request.toJson();
+    notifyListeners();
     return request;
   }
 
@@ -1774,10 +1835,6 @@ class VitaRepository extends ChangeNotifier {
     if (!await InternetConnectivityService.hasInternetConnection()) {
       throw Exception('No hay conexión a internet para entrar a la llamada.');
     }
-    final call = requests.cast<CallRequest?>().firstWhere(
-      (request) => request?.id == support.callId,
-      orElse: () => null,
-    );
     await _jitsi.join(
       roomName: support.roomName,
       requestId: support.callId,
@@ -1786,7 +1843,7 @@ class VitaRepository extends ChangeNotifier {
       displayName: me.displayName,
       userId: me.id,
       profilePhotoBase64: me.photoBase64,
-      audioOnly: call?.audioOnly ?? false,
+      audioOnly: support.audioOnly,
       // Al salir, el psicólogo cierra su participación; la llamada del voluntario sigue o termina sola.
       onTerminated: () => closeSupport(supportId),
       onInterrupted: () => closeSupport(supportId),
@@ -1802,8 +1859,31 @@ class VitaRepository extends ChangeNotifier {
         s.status == SupportStatus.cancelled) {
       return;
     }
-    _supports[i] = s.copyWith(status: SupportStatus.closed, closedAt: _now());
-    await _commit();
+    final me = currentUser;
+    if (me == null ||
+        me.role != UserRole.psychologist ||
+        s.psychologistId != me.id ||
+        s.status != SupportStatus.accepted) {
+      throw Exception('Solo el psicólogo que aceptó puede cerrar esta solicitud.');
+    }
+    final closedAt = _now();
+    try {
+      await _db.collection('supportRequests').doc(id).update({
+        'status': SupportStatus.closed.name,
+        'closedAt': vitaIso(closedAt),
+      }).timeout(_writeTimeout);
+    } on FirebaseException catch (e) {
+      throw Exception('No se pudo cerrar la solicitud (${e.code}).');
+    } on TimeoutException {
+      throw Exception('Firestore no confirmó el cierre de la solicitud.');
+    }
+    final closed = s.copyWith(
+      status: SupportStatus.closed,
+      closedAt: closedAt,
+    );
+    _supports[i] = closed;
+    _supportsSync.synced[id] = closed.toJson();
+    notifyListeners();
   }
 
   /// Coordinación crea la cuenta de un psicólogo (nadie se registra solo como profesional).

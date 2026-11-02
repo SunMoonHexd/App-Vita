@@ -208,7 +208,7 @@ class _RoleCard extends StatelessWidget {
                         image,
                         fit: BoxFit.cover,
                         cacheWidth: 312,
-                        errorBuilder: (_, __, ___) => const ColoredBox(
+                        errorBuilder: (_, _, _) => const ColoredBox(
                           color: Colors.white24,
                           child: Icon(Icons.people_alt_rounded, color: Colors.white, size: 42),
                         ),

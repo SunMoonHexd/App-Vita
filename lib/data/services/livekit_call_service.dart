@@ -51,6 +51,11 @@ class LiveKitCallService extends ChangeNotifier {
   String _requesterName = '';
   String _displayName = '';
   String? _profilePhotoBase64;
+  String? _supportProfessionalName;
+  bool _leaveWhenSupportJoins = false;
+  bool _leftForSupport = false;
+  String? _supportRequestIdToWatch;
+  VoidCallback? _onSupportHandoff;
 
   Room? get room => _room;
   bool get reconnecting => _reconnecting;
@@ -66,6 +71,7 @@ class LiveKitCallService extends ChangeNotifier {
   bool get hasRemote => _room?.remoteParticipants.isNotEmpty ?? false;
   String get localDisplayName => _displayName;
   String? get localPhotoBase64 => _profilePhotoBase64;
+  String? get supportProfessionalName => _supportProfessionalName;
   String get remoteDisplayName =>
       _firstRemoteParticipant?.name ?? 'La otra persona';
   String? get remotePhotoBase64 {
@@ -175,6 +181,8 @@ class LiveKitCallService extends ChangeNotifier {
 
   /// Entra a la sala. Termina cuando la llamada se cierra, y entonces avisa con
   /// [onTerminated] (o [onInterrupted] si se cortó por un problema).
+  /// Si [leaveWhenSupportJoins] está activo, sale solo este participante cuando
+  /// el psicólogo de la solicitud [supportRequestIdToWatch] anuncia su entrada.
   Future<void> join({
     required String roomName,
     required String requestId,
@@ -184,17 +192,25 @@ class LiveKitCallService extends ChangeNotifier {
     String? supportRequestId,
     String? announceAs,
     bool audioOnly = false,
+    bool leaveWhenSupportJoins = false,
+    VoidCallback? onSupportHandoff,
     required VoidCallback onTerminated,
     VoidCallback? onInterrupted,
   }) async {
     final navigator = appNavigatorKey.currentState;
-    if (navigator == null)
+    if (navigator == null) {
       throw Exception('No se pudo abrir la pantalla de llamada.');
+    }
 
     _stopTimers();
     _roomName = roomName;
     _displayName = displayName;
     _profilePhotoBase64 = profilePhotoBase64;
+    _supportProfessionalName = null;
+    _leaveWhenSupportJoins = leaveWhenSupportJoins;
+    _leftForSupport = false;
+    _supportRequestIdToWatch = null;
+    _onSupportHandoff = onSupportHandoff;
     _interrupted = false;
     _reconnecting = false;
     _reconnectMessage = null;
@@ -252,7 +268,11 @@ class LiveKitCallService extends ChangeNotifier {
     // Un profesional de apoyo avisa a quienes ya están en la llamada, para que nadie se sorprenda.
     if (announceAs != null) {
       unawaited(
-        _send({'t': 'support_joined', 'name': announceAs}).catchError(
+        _send({
+          't': 'support_joined',
+          'name': announceAs,
+          if (supportRequestId != null) 'supportRequestId': supportRequestId,
+        }).catchError(
           (Object e) => debugPrint('LiveKit: no se pudo avisar el ingreso: $e'),
         ),
       );
@@ -291,11 +311,22 @@ class LiveKitCallService extends ChangeNotifier {
 
     final wasInterrupted = _interrupted;
     await _teardown();
-    if (wasInterrupted && onInterrupted != null) {
+    if (_leftForSupport) {
+      _onSupportHandoff?.call();
+    } else if (wasInterrupted && onInterrupted != null) {
       onInterrupted();
     } else {
       onTerminated();
     }
+    _leaveWhenSupportJoins = false;
+    _supportRequestIdToWatch = null;
+    _onSupportHandoff = null;
+  }
+
+  /// Asocia la solicitud aceptada con esta sesión del voluntario para retirarlo
+  /// únicamente cuando entre el psicólogo correspondiente.
+  void watchForSupportHandoff(String? supportRequestId) {
+    _supportRequestIdToWatch = supportRequestId;
   }
 
   void _attachListeners(Room room) {
@@ -338,8 +369,9 @@ class LiveKitCallService extends ChangeNotifier {
       ..on<RoomDisconnectedEvent>((event) {
         _reconnecting = false;
         _reconnectMessage = null;
-        if (event.reason != DisconnectReason.clientInitiated)
+        if (event.reason != DisconnectReason.clientInitiated) {
           _interrupted = true;
+        }
         _closeScreen();
       })
       ..on<ParticipantConnectionQualityUpdatedEvent>((event) {
@@ -465,10 +497,11 @@ class LiveKitCallService extends ChangeNotifier {
       _camOn = success;
       _camNeedsRetry = !success;
     }
-    if (!success)
+    if (!success) {
       debugPrint(
         'LiveKit: no se pudo abrir ${mic ? 'el micrófono' : 'la cámara'}.',
       );
+    }
     notifyListeners();
     return success;
   }
@@ -736,7 +769,19 @@ class LiveKitCallService extends ChangeNotifier {
     switch (msg['t']) {
       case 'support_joined':
         final who = (msg['name'] as String?) ?? 'Un profesional de apoyo';
-        CallNotice.show('$who, profesional de apoyo, se unió a la llamada.');
+        final joinedSupportId = msg['supportRequestId'];
+        if (joinedSupportId is String && joinedSupportId.isNotEmpty) {
+          _supportProfessionalName = who;
+          notifyListeners();
+        }
+        CallNotice.show('El psicólogo autorizado por VITA, $who, se unió a la llamada.');
+        if (_leaveWhenSupportJoins &&
+            !_leftForSupport &&
+            joinedSupportId == _supportRequestIdToWatch) {
+          _leftForSupport = true;
+          CallNotice.show('El profesional ya está con ustedes. Tú puedes salir de la llamada.');
+          _closeScreen();
+        }
       case 'rec_request':
         if (_phase != RecordingPhase.idle) return;
         _requesterName = (msg['name'] as String?) ?? 'La otra persona';

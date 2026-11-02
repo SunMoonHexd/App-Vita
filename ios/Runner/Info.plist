@@ -72,5 +72,9 @@
 	<string>VITA necesita acceder a tus fotos para que elijas tu foto de perfil.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>VITA usa Face ID para proteger el acceso a tu sesión.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>VITA usa el micrófono cuando tocas el botón para iniciar una llamada con tu voz.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>VITA reconoce la frase que dices después de tocar el botón para iniciar una llamada.</string>
 </dict>
 </plist>

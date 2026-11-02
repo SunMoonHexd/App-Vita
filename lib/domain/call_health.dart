@@ -1,5 +1,6 @@
 /// Lógica pura para vigilar la videollamada (RF6 y RF24): estado de la cámara y del micrófono,
 /// calidad de la conexión y reintentos. No depende de LiveKit, así se puede probar sola.
+library;
 
 /// Estado de un dispositivo, para mostrárselo a la persona (F6.10).
 enum DeviceHealth { ok, off, failed, missing }

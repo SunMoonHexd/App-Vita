@@ -8,8 +8,6 @@ bool canApproveVolunteer(VitaUser user) =>
     user.inductionDone &&
     user.photoBase64 != null &&
     user.identityDocumentConsent &&
-    user.idFrontBase64 != null &&
-    user.idBackBase64 != null &&
     user.identityVerified;
 
 /// Mensaje que ve el voluntario pendiente al intentar entrar, según el paso en que va.
